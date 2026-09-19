@@ -8,6 +8,7 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
     bins,
+    classify,
     health,
     predictions,
     reference,
@@ -24,3 +25,4 @@ api_router.include_router(bins.router)
 api_router.include_router(telemetry.router)
 api_router.include_router(vehicles.router)
 api_router.include_router(predictions.router)
+api_router.include_router(classify.router)
