@@ -89,6 +89,9 @@ cd backend
 python -m app.cli init-db     # or `alembic upgrade head` against PostgreSQL
 python -m app.cli seed        # 9 zones, 130 bins, 7 vehicles. Safe to re-run.
 
+# 3b. Backfill the history the fill-level model trains on (~560k readings)
+python -m app.cli generate-history --days 90
+
 # 4. Run the API
 uvicorn app.main:app --reload
 ```
@@ -122,6 +125,7 @@ Check what landed with `python -m app.cli status`.
 |---|---|
 | `init-db` | Create tables directly from the models |
 | `seed` | Create the Mumbai zones, bins and vehicles |
+| `generate-history` | Backfill months of readings and collection events |
 | `status` | Row counts and average fill level |
 | `broker` | Run the embedded MQTT broker |
 | `bridge` | Ingest MQTT telemetry into the database |

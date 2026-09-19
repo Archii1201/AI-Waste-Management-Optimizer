@@ -57,6 +57,31 @@ def seed(
     console.print(f"[green]Seeded:[/] {report}")
 
 
+@app.command("generate-history")
+def generate_history(
+    days: int = typer.Option(90, help="Days of history to generate, ending now"),
+    interval_minutes: int = typer.Option(30, help="Minutes between generated readings"),
+    reset: bool = typer.Option(
+        False, "--reset", help="Wipe existing readings and collections first"
+    ),
+    zone_id: int | None = typer.Option(None, help="Restrict generation to one zone"),
+    seed_value: int | None = typer.Option(20260919, "--seed", help="Generator seed"),
+) -> None:
+    """Backfill the telemetry history the fill-level model trains on."""
+    from app.seed.history import generate_history as run_generation
+
+    with SessionLocal() as session:
+        report = run_generation(
+            session,
+            days=days,
+            interval_minutes=interval_minutes,
+            seed=seed_value,
+            reset=reset,
+            zone_id=zone_id,
+        )
+    console.print(f"[green]Generated:[/] {report}")
+
+
 @app.command("status")
 def status() -> None:
     """Show what is currently in the database."""
