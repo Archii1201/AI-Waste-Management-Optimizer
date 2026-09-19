@@ -72,6 +72,18 @@ class Settings(BaseSettings):
     overflow_alert_horizon_hours: int = 12
     alert_cooldown_minutes: int = 120
 
+    # ---------- Telemetry interpretation ----------
+    # A large drop in fill level with a low residual is how the system infers
+    # that a bin was emptied, since low-cost sensors never report collections.
+    collection_drop_threshold_pct: float = 25.0
+    collection_residual_max_pct: float = 25.0
+    # Readings dated further ahead than this are rejected as clock-skew errors.
+    telemetry_future_tolerance_minutes: int = 5
+    # Silence longer than this marks a sensor as stale on the dashboard.
+    sensor_stale_hours: int = 24
+    # History window used for the rolling fill-rate estimate.
+    fill_rate_window_days: int = 7
+
     # ---------- Routing ----------
     osrm_base_url: str = "https://router.project-osrm.org"
     osrm_enabled: bool = True

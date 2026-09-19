@@ -6,7 +6,12 @@ untouched as the system grows.
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import health
+from app.api.v1.endpoints import bins, health, reference, telemetry, vehicles, zones
 
 api_router = APIRouter()
 api_router.include_router(health.router)
+api_router.include_router(reference.router)
+api_router.include_router(zones.router)
+api_router.include_router(bins.router)
+api_router.include_router(telemetry.router)
+api_router.include_router(vehicles.router)

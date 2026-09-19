@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Date,
-    DateTime,
     Float,
     ForeignKey,
     Index,
@@ -21,12 +20,11 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
 from app.models.enums import RouteStatus, StopStatus
-from app.models.types import enum_type
+from app.models.types import UTCDateTime, enum_type, json_type
 
 if TYPE_CHECKING:
     from app.models.bin import Bin
@@ -63,18 +61,18 @@ class Route(Base, TimestampMixin):
     # ---------- Solver provenance ----------
     solver_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
     solve_time_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
-    optimization_params: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    optimization_params: Mapped[dict[str, Any] | None] = mapped_column(json_type(), nullable=True)
 
     # Bins the solver could not fit, each with the reason, so dispatchers are
     # never silently left with uncollected high-priority bins.
-    deferred_bins: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    deferred_bins: Mapped[list[dict[str, Any]] | None] = mapped_column(json_type(), nullable=True)
 
     # Road-following polyline from OSRM for drawing the route on the map.
-    geometry: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    geometry: Mapped[dict[str, Any] | None] = mapped_column(json_type(), nullable=True)
 
-    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dispatched_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     vehicle: Mapped["Vehicle | None"] = relationship(back_populates="routes")
@@ -121,8 +119,8 @@ class RouteStop(Base):
     travel_time_minutes: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     service_time_minutes: Mapped[float] = mapped_column(Float, nullable=False, default=6.0)
 
-    planned_arrival: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    actual_arrival: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    planned_arrival: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    actual_arrival: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
     expected_volume_liters: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     expected_weight_kg: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)

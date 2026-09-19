@@ -12,9 +12,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
-    BigInteger,
     CheckConstraint,
-    DateTime,
     Float,
     ForeignKey,
     Index,
@@ -23,12 +21,11 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
 from app.models.enums import BinStatus, ReadingSource, WasteType
-from app.models.types import enum_type
+from app.models.types import UTCDateTime, bigint_pk, enum_type, json_type
 
 if TYPE_CHECKING:
     from app.models.collection import CollectionEvent
@@ -78,9 +75,9 @@ class Bin(Base, TimestampMixin):
     current_weight_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
     battery_level: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_reading_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True, index=True
+        UTCDateTime(), nullable=True, index=True
     )
-    last_emptied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_emptied_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
     # Per-bin override of the global collection threshold; NULL falls back to the
     # value in settings. Lets operators treat a hospital bin differently.
@@ -95,7 +92,7 @@ class Bin(Base, TimestampMixin):
     overflow_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     sensor_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
-    installed_on: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    installed_on: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     zone: Mapped["Zone"] = relationship(back_populates="bins")
@@ -136,12 +133,12 @@ class BinReading(Base):
         Index("ix_bin_readings_recorded_at", "recorded_at"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(bigint_pk(), primary_key=True)
     bin_id: Mapped[int] = mapped_column(
         ForeignKey("bins.id", ondelete="CASCADE"), nullable=False
     )
 
-    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     fill_level: Mapped[float] = mapped_column(Float, nullable=False)
     weight_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
     temperature_c: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -152,7 +149,7 @@ class BinReading(Base):
     )
 
     # Original device payload, retained for debugging sensor firmware issues.
-    raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    raw_payload: Mapped[dict[str, Any] | None] = mapped_column(json_type(), nullable=True)
 
     bin: Mapped["Bin"] = relationship(back_populates="readings")
 

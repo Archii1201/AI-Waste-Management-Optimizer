@@ -11,21 +11,18 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
-    DateTime,
     Float,
     ForeignKey,
     Index,
     Integer,
     String,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
 from app.models.enums import WasteType
-from app.models.types import enum_type
+from app.models.types import UTCDateTime, bigint_pk, enum_type, json_type
 
 if TYPE_CHECKING:
     from app.models.bin import Bin
@@ -38,7 +35,7 @@ class WasteClassification(Base):
         Index("ix_waste_classifications_predicted", "predicted_class"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(bigint_pk(), primary_key=True)
 
     bin_id: Mapped[int | None] = mapped_column(
         ForeignKey("bins.id", ondelete="SET NULL"), nullable=True, index=True
@@ -53,7 +50,7 @@ class WasteClassification(Base):
 
     # Full softmax distribution over the six categories, so the UI can show a
     # probability bar chart and the operator can see the runner-up guess.
-    probabilities: Mapped[dict[str, float] | None] = mapped_column(JSONB, nullable=True)
+    probabilities: Mapped[dict[str, float] | None] = mapped_column(json_type(), nullable=True)
 
     is_recyclable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
@@ -62,13 +59,13 @@ class WasteClassification(Base):
     needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     reviewed_class: Mapped[WasteType | None] = mapped_column(enum_type(WasteType), nullable=True)
     reviewed_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
     model_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     inference_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
-    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(json_type(), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
     bin: Mapped["Bin | None"] = relationship()
 

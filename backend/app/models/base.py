@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, MetaData, func
+from sqlalchemy import MetaData, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from app.models.types import UTCDateTime
 
 # Explicit naming convention so Alembic generates stable, predictable constraint
 # names instead of database-assigned ones that differ between environments.
@@ -26,10 +28,10 @@ class TimestampMixin:
     """Audit columns applied to every mutable entity."""
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        UTCDateTime(), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,

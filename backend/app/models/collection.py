@@ -12,10 +12,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     CheckConstraint,
-    DateTime,
     Float,
     ForeignKey,
     Index,
@@ -26,7 +24,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
 from app.models.enums import WasteType
-from app.models.types import enum_type
+from app.models.types import UTCDateTime, bigint_pk, enum_type
 
 if TYPE_CHECKING:
     from app.models.bin import Bin
@@ -42,7 +40,7 @@ class CollectionEvent(Base):
         Index("ix_collection_events_collected_at", "collected_at"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(bigint_pk(), primary_key=True)
     bin_id: Mapped[int] = mapped_column(
         ForeignKey("bins.id", ondelete="CASCADE"), nullable=False
     )
@@ -53,7 +51,7 @@ class CollectionEvent(Base):
         ForeignKey("routes.id", ondelete="SET NULL"), nullable=True
     )
 
-    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    collected_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
     # Fill level immediately before emptying. Comparing this against the
     # collection threshold is how over-servicing ("emptied at 30%") is detected.

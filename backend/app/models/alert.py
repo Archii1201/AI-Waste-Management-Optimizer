@@ -5,13 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Index, String, Text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Float, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
 from app.models.enums import AlertSeverity, AlertStatus, AlertType
-from app.models.types import enum_type
+from app.models.types import UTCDateTime, bigint_pk, enum_type, json_type
 
 if TYPE_CHECKING:
     from app.models.bin import Bin
@@ -26,7 +25,7 @@ class Alert(Base):
         Index("ix_alerts_dedup_key", "dedup_key"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(bigint_pk(), primary_key=True)
 
     alert_type: Mapped[AlertType] = mapped_column(enum_type(AlertType, 48), nullable=False)
     severity: Mapped[AlertSeverity] = mapped_column(
@@ -52,17 +51,17 @@ class Alert(Base):
 
     # Structured payload (thresholds crossed, z-score, predicted overflow time)
     # so the UI can render a rich card instead of parsing the message string.
-    details: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    details: Mapped[dict[str, Any] | None] = mapped_column(json_type(), nullable=True)
 
     # Stable identity for "the same problem", e.g. "overflow:bin:142". The alert
     # service refuses to raise a new alert for an open dedup_key inside the
     # cooldown window, which is what stops one full bin generating 50 alerts.
     dedup_key: Mapped[str] = mapped_column(String(160), nullable=False)
 
-    triggered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    triggered_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     acknowledged_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # How far past normal the observation was, for anomaly-type alerts.

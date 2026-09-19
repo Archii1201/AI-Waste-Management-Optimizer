@@ -5,12 +5,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Float, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
 from app.models.enums import ZoneType
-from app.models.types import enum_type
+from app.models.types import enum_type, json_type
 
 if TYPE_CHECKING:
     from app.models.bin import Bin
@@ -40,7 +39,7 @@ class Zone(Base, TimestampMixin):
 
     # GeoJSON polygon ring for map rendering. Kept as JSONB so the project does
     # not require the PostGIS extension, which cloud tiers do not always enable.
-    boundary: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    boundary: Mapped[dict[str, Any] | None] = mapped_column(json_type(), nullable=True)
 
     population_served: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
