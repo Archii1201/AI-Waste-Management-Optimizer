@@ -1,0 +1,112 @@
+# AI-Powered Waste Management & Recycling Optimizer
+
+Monitors waste bins in real time, forecasts when each bin will overflow, classifies
+waste from images, prioritises collections, and plans capacity-constrained vehicle
+routes — with an operations dashboard over OpenStreetMap.
+
+Built for problem statement **PS-11**. Seeded network is modelled on **Mumbai**.
+
+---
+
+## Architecture
+
+```
+IoT bins ──MQTT──┐
+                 ├──> Ingest service ──> PostgreSQL
+REST /telemetry ─┘                            │
+                                              ├──> Fill-level forecaster   (scikit-learn)
+                                              ├──> Waste image classifier  (PyTorch CNN)
+                                              ├──> Prioritisation engine   (weighted scoring)
+                                              ├──> Route optimizer         (OR-Tools CVRP)
+                                              ├──> Alert engine            (rules + anomaly detection)
+                                              └──> Analytics engine        (patterns, recommendations)
+                                                        │
+                        Next.js dashboard <──REST/WS────┘  (MapLibre + OSM, Recharts)
+```
+
+## Technology
+
+| Layer | Choice | Why |
+|---|---|---|
+| Backend | FastAPI + SQLAlchemy 2.0 + Alembic | Async-capable, auto-generated OpenAPI docs, typed ORM |
+| Database | PostgreSQL (cloud) | Window functions and time-bucketed aggregation for analytics |
+| Fill prediction | scikit-learn `HistGradientBoostingRegressor` | Strong on mixed tabular features, trains in seconds on CPU |
+| Waste classification | PyTorch + MobileNetV3 transfer learning | Small dataset rules out training from scratch; runs on CPU |
+| Routing | Google OR-Tools | Industry-standard CVRP solver with capacity and time windows |
+| Frontend | Next.js 14 + TypeScript + Tailwind | Server components, strong typing, fast iteration |
+| Maps | MapLibre GL + OpenStreetMap | Free, no API key, vector rendering for hundreds of markers |
+| IoT | amqtt broker + paho-mqtt client | Pure Python, so no system-level broker install |
+
+## Repository layout
+
+```
+backend/
+  app/
+    api/v1/endpoints/   HTTP route handlers, one module per resource
+    core/               config, database session, logging, error handling
+    models/             SQLAlchemy ORM models (the schema)
+    schemas/            Pydantic request/response contracts
+    services/           business logic, framework-independent
+  alembic/              database migrations
+ml/                     training pipelines and model artifacts
+frontend/               Next.js dashboard
+requirements.txt        every Python dependency, in one file
+```
+
+## Database schema
+
+| Table | Purpose |
+|---|---|
+| `zones` | Wards/neighbourhoods; the baseline unit for anomaly detection |
+| `bins` | Location, capacity, waste type, and latest telemetry snapshot |
+| `bin_readings` | Append-only sensor time-series; trains the forecaster |
+| `collection_events` | Every emptying, with recyclable/non-recyclable split |
+| `vehicles` | Capacity (volume and weight), depot, shift window, live position |
+| `routes` / `route_stops` | Optimizer output with ordered stops and ETAs |
+| `fill_predictions` | Cached forecasts, later scored against what actually happened |
+| `waste_classifications` | Image classifier results and human corrections |
+| `alerts` | Overflow warnings and generation anomalies, with deduplication |
+| `users` | Role-based access: admin, dispatcher, driver, viewer |
+
+## Setup
+
+**Prerequisites:** Python 3.11, Node 20+, and a PostgreSQL connection string
+(a free [Neon](https://neon.tech) database works).
+
+```powershell
+# 1. Install Python dependencies
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+# 2. Configure
+Copy-Item .env.example .env
+# then set DATABASE_URL and SECRET_KEY in .env
+#   python -c "import secrets; print(secrets.token_urlsafe(48))"
+
+# 3. Create the schema
+cd backend
+alembic upgrade head
+
+# 4. Run the API
+uvicorn app.main:app --reload
+```
+
+Interactive API docs: <http://localhost:8000/docs>
+
+**Optional GPU:** to train the image classifier on an NVIDIA card, after step 1 run
+`pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu121`.
+
+## Deliverable coverage
+
+| Requirement | Where it lives |
+|---|---|
+| Bin monitoring (location, capacity, fill, type) | `models/bin.py`, `/api/v1/bins` |
+| Fill-level prediction | `ml/fill_prediction/`, `/api/v1/predictions` |
+| Waste classification (6 categories) | `ml/classification/`, `/api/v1/classify` |
+| Collection prioritisation | `services/prioritization.py`, `/api/v1/priorities` |
+| Route optimization | `services/routing/`, `/api/v1/routes/optimize` |
+| Dashboard | `frontend/` |
+| Alerts | `services/alerts.py`, `/api/v1/alerts` |
+| Analytics & recommendations | `services/analytics.py`, `/api/v1/analytics` |
+| Recyclable/non-recyclable estimation | `collection_events`, `/api/v1/analytics/waste-estimation` |

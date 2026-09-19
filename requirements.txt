@@ -1,0 +1,77 @@
+# =============================================================================
+# AI-Powered Waste Management & Recycling Optimizer
+# Single source of truth for every Python dependency in the project.
+#
+#   python -m venv .venv
+#   .\.venv\Scripts\Activate.ps1      (Windows)   |   source .venv/bin/activate
+#   pip install -r requirements.txt
+#
+# GPU note: the torch/torchvision pins below install the CPU build, which works
+# everywhere. To use the NVIDIA GPU for classifier training, afterwards run:
+#   pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# =============================================================================
+
+# ---------- Web framework & server ----------
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+# websockets is intentionally unpinned: uvicorn[standard] and amqtt both depend
+# on it with different ranges, so pip is left to resolve a mutually valid version.
+
+# ---------- Configuration & validation ----------
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-dotenv==1.0.1
+email-validator==2.2.0
+
+# ---------- Database ----------
+SQLAlchemy==2.0.36
+alembic==1.14.0
+psycopg[binary]==3.2.3
+
+# ---------- Authentication & security ----------
+passlib[bcrypt]==1.7.4
+bcrypt==4.2.1
+PyJWT==2.10.1
+
+# ---------- HTTP client (OSRM routing, webhooks) ----------
+httpx==0.28.1
+tenacity==9.0.0
+
+# ---------- IoT / MQTT ----------
+# paho-mqtt: client used by the ingest bridge and the device simulator.
+# amqtt: pure-Python MQTT broker, so no system-level broker install is needed.
+paho-mqtt==2.1.0
+amqtt==0.11.0
+
+# ---------- Data science & fill-level prediction ----------
+numpy==2.2.1
+pandas==2.2.3
+scikit-learn==1.6.0
+scipy==1.14.1
+joblib==1.4.2
+statsmodels==0.14.4
+
+# ---------- Waste image classification (computer vision) ----------
+torch==2.5.1
+torchvision==0.20.1
+Pillow==11.0.0
+
+# ---------- Route optimization ----------
+ortools==9.11.4210
+
+# ---------- Scheduling (prediction refresh, alert sweeps) ----------
+APScheduler==3.11.0
+
+# ---------- Visualisation for ML reports (confusion matrix, training curves) ----------
+matplotlib==3.10.0
+seaborn==0.13.2
+
+# ---------- CLI & developer experience ----------
+typer==0.15.4          # pinned exactly by amqtt; keep in sync with it
+rich==13.9.4
+
+# ---------- Testing ----------
+pytest==8.3.4
+pytest-asyncio==0.25.0
+pytest-cov==6.0.0
