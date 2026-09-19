@@ -22,8 +22,8 @@ from app.main import app
 from app.models import Base
 
 
-@pytest.fixture
-def engine():
+def make_sqlite_engine():
+    """Build an isolated in-memory database with the schema already created."""
     eng = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -44,8 +44,13 @@ def engine():
         connection.exec_driver_sql("BEGIN")
 
     Base.metadata.create_all(eng)
+    return eng
+
+
+@pytest.fixture
+def engine():
+    eng = make_sqlite_engine()
     yield eng
-    Base.metadata.drop_all(eng)
     eng.dispose()
 
 

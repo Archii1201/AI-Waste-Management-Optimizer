@@ -84,15 +84,48 @@ Copy-Item .env.example .env
 # then set DATABASE_URL and SECRET_KEY in .env
 #   python -c "import secrets; print(secrets.token_urlsafe(48))"
 
-# 3. Create the schema
+# 3. Create the schema and seed the Mumbai network
 cd backend
-alembic upgrade head
+python -m app.cli init-db     # or `alembic upgrade head` against PostgreSQL
+python -m app.cli seed        # 9 zones, 130 bins, 7 vehicles. Safe to re-run.
 
 # 4. Run the API
 uvicorn app.main:app --reload
 ```
 
 Interactive API docs: <http://localhost:8000/docs>
+
+### Running the live IoT simulation
+
+Three processes, one per terminal, all from `backend/`:
+
+```powershell
+python -m app.cli broker      # 1. embedded MQTT broker on :1883
+python -m app.cli bridge      # 2. MQTT -> database ingestion
+python -m app.cli simulate --auto-collect --speed 600   # 3. the bin sensor fleet
+```
+
+Simulated time starts 24 hours in the past and races forward until it catches
+the wall clock, then continues in real time. `--auto-collect` models the legacy
+fixed-schedule crew so bins are actually emptied before the route optimizer
+exists; that also gives the baseline this project is measured against.
+
+Useful flags: `--ticks N` to stop after N intervals, `--zone-id` to simulate one
+ward, `--dropout-rate 0.02` to make sensors occasionally fail to transmit, and
+`--seed 7` for a byte-for-byte reproducible run.
+
+Check what landed with `python -m app.cli status`.
+
+### CLI reference
+
+| Command | Purpose |
+|---|---|
+| `init-db` | Create tables directly from the models |
+| `seed` | Create the Mumbai zones, bins and vehicles |
+| `status` | Row counts and average fill level |
+| `broker` | Run the embedded MQTT broker |
+| `bridge` | Ingest MQTT telemetry into the database |
+| `simulate` | Run the bin sensor fleet |
 
 **Optional GPU:** to train the image classifier on an NVIDIA card, after step 1 run
 `pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu121`.
