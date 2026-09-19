@@ -178,5 +178,107 @@ def simulate(
     simulator.run(ticks=ticks)
 
 
+# ---------------------------------------------------------------------------
+# Fill-level prediction
+# ---------------------------------------------------------------------------
+@app.command("train-fill-model")
+def train_fill_model(
+    days: int | None = typer.Option(
+        None, help="Only train on the last N days of history (default: all of it)"
+    ),
+    validation_fraction: float = typer.Option(
+        0.2, help="Share of the most recent data held out for validation"
+    ),
+    show_importance: bool = typer.Option(
+        True, help="Print how much each feature contributes"
+    ),
+) -> None:
+    """Train the fill-rate model on the stored telemetry history."""
+    from app.ml.fill_prediction.predictor import FillRatePredictor
+    from app.ml.fill_prediction.train import train_fill_model as run_training
+
+    with SessionLocal() as session:
+        result = run_training(
+            session, days=days, validation_fraction=validation_fraction
+        )
+
+    metrics_table = Table(title=f"Validation metrics - {result.model_version}")
+    metrics_table.add_column("Metric")
+    metrics_table.add_column("Value", justify="right")
+    for name, value in result.metrics.items():
+        metrics_table.add_row(name, f"{value:,.4f}" if isinstance(value, float) else str(value))
+    console.print(metrics_table)
+
+    if show_importance and result.feature_importance:
+        importance_table = Table(title="Permutation importance (MAE increase when shuffled)")
+        importance_table.add_column("Feature")
+        importance_table.add_column("Impact", justify="right")
+        for name, value in list(result.feature_importance.items())[:10]:
+            importance_table.add_row(name, f"{value:.4f}")
+        console.print(importance_table)
+
+    baseline = result.metrics.get("baseline_mae_rolling_24h")
+    model_mae = result.metrics.get("val_mae")
+    if baseline and model_mae:
+        lift = 100.0 * (baseline - model_mae) / baseline
+        console.print(
+            f"Model beats the 24h rolling-average baseline by [bold]{lift:.1f}%[/] on MAE"
+        )
+
+    # Drop the in-process cache so a bridge or API in the same process picks the
+    # new artifact up immediately.
+    FillRatePredictor.reset_cache()
+    console.print(f"[green]Saved:[/] {result.artifact_path}")
+
+
+@app.command("predict")
+def predict(
+    zone_id: int | None = typer.Option(None, help="Restrict the refresh to one zone"),
+    horizon_hours: int = typer.Option(336, help="How far ahead to simulate, in hours"),
+    top: int = typer.Option(10, help="How many of the most urgent bins to print"),
+) -> None:
+    """Refresh stored fill-level forecasts for every active bin."""
+    from app.services import prediction_service
+
+    with SessionLocal() as session:
+        report = prediction_service.refresh_predictions(
+            session, zone_id=zone_id, horizon_hours=horizon_hours
+        )
+        urgent = prediction_service.latest_predictions(session, zone_id=zone_id, limit=top)
+
+        table = Table(title=f"Most urgent bins ({report})")
+        table.add_column("Bin")
+        table.add_column("Fill %", justify="right")
+        table.add_column("Rate pp/h", justify="right")
+        table.add_column("Full in", justify="right")
+        table.add_column("Method")
+
+        for prediction in urgent:
+            hours = prediction.hours_to_full
+            table.add_row(
+                prediction.bin.code,
+                f"{prediction.fill_level_at_generation:.0f}",
+                f"{prediction.predicted_fill_rate_pct_per_hour:.2f}",
+                "beyond horizon" if hours is None else f"{hours:.1f}h",
+                prediction.method.value,
+            )
+
+    console.print(table)
+
+
+@app.command("score-predictions")
+def score_predictions(
+    lookback_days: int = typer.Option(7, help="How far back to look for scorable forecasts"),
+) -> None:
+    """Compare past forecasts against the overflows that actually happened."""
+    from app.services import prediction_service
+
+    with SessionLocal() as session:
+        scored = prediction_service.score_past_predictions(
+            session, lookback_days=lookback_days
+        )
+    console.print(f"[green]Scored[/] {scored} forecasts against observed overflows")
+
+
 if __name__ == "__main__":
     app()
