@@ -96,6 +96,13 @@ class Settings(BaseSettings):
     fill_model_name: str = "fill_rate_gbr"
     classifier_model_name: str = "waste_mobilenetv3"
     classifier_confidence_threshold: float = 0.60
+    # Labelled images, one folder per category. See the README for the layout.
+    classifier_dataset_dir: str = "ml/datasets/waste"
+    classifier_image_size: int = 224
+    # Where uploaded photos are kept so a reviewer can see what was classified
+    # and so corrected images can be folded into the next training run.
+    upload_dir: str = "ml/uploads"
+    max_upload_bytes: int = 8 * 1024 * 1024
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -123,6 +130,16 @@ class Settings(BaseSettings):
     @property
     def artifact_path(self) -> Path:
         path = PROJECT_ROOT / self.ml_artifact_dir
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @property
+    def dataset_path(self) -> Path:
+        return PROJECT_ROOT / self.classifier_dataset_dir
+
+    @property
+    def upload_path(self) -> Path:
+        path = PROJECT_ROOT / self.upload_dir
         path.mkdir(parents=True, exist_ok=True)
         return path
 
