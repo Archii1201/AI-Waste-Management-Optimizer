@@ -92,6 +92,10 @@ python -m app.cli seed        # 9 zones, 130 bins, 7 vehicles. Safe to re-run.
 # 3b. Backfill the history the fill-level model trains on (~560k readings)
 python -m app.cli generate-history --days 90
 
+# 3c. Train the fill-level model and produce the first forecasts
+python -m app.cli train-fill-model
+python -m app.cli predict
+
 # 4. Run the API
 uvicorn app.main:app --reload
 ```
@@ -130,6 +134,9 @@ Check what landed with `python -m app.cli status`.
 | `broker` | Run the embedded MQTT broker |
 | `bridge` | Ingest MQTT telemetry into the database |
 | `simulate` | Run the bin sensor fleet |
+| `train-fill-model` | Train the fill-rate model on stored history |
+| `predict` | Refresh stored overflow forecasts for every bin |
+| `score-predictions` | Grade past forecasts against observed overflows |
 
 **Optional GPU:** to train the image classifier on an NVIDIA card, after step 1 run
 `pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu121`.

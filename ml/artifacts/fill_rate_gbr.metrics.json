@@ -1,0 +1,36 @@
+{
+  "model_version": "fill_rate_gbr-20260919102947",
+  "trained_at": "2026-09-19T10:29:47.797188+00:00",
+  "rows_total": 462157,
+  "rows_train": 369725,
+  "rows_validation": 92432,
+  "metrics": {
+    "train_mae": 1.04082089093962,
+    "val_mae": 1.0439538321930677,
+    "val_r2": 0.6875078329737196,
+    "val_median_abs_error": 0.8307906648313842,
+    "val_hours_to_full_mae": 17.303048366057716,
+    "baseline_mae_rolling_24h": 1.836450377042168,
+    "target_mean": 2.9405747515044967,
+    "iterations": 400
+  },
+  "residual_quantiles": {
+    "p10": -1.543645400148455,
+    "p50": -8.505012374777802e-15,
+    "p90": 1.8180504280488672
+  },
+  "feature_importance": {
+    "hour_cos": 0.6012324019530685,
+    "rate_7d": 0.3537650433723281,
+    "zone_type": 0.3073070945407603,
+    "fill_level": 0.2889140899316893,
+    "hour_sin": 0.1220189092927751,
+    "rate_24h": 0.04499257742196031,
+    "dow_sin": 0.041958382411095764,
+    "hours_since_collection": 0.023855157879574485,
+    "dow_cos": 0.01784565186902228,
+    "waste_type": 0.008277082619995898,
+    "is_weekend": 0.0019122118887175965,
+    "capacity_liters": 0.0003809782475815056
+  }
+}
