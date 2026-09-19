@@ -96,6 +96,10 @@ python -m app.cli generate-history --days 90
 python -m app.cli train-fill-model
 python -m app.cli predict
 
+# 3d. Optional: train the waste image classifier (needs a labelled image set,
+#     see "Waste image classification" below)
+python -m app.cli train-classifier
+
 # 4. Run the API
 uvicorn app.main:app --reload
 ```
@@ -137,6 +141,41 @@ Check what landed with `python -m app.cli status`.
 | `train-fill-model` | Train the fill-rate model on stored history |
 | `predict` | Refresh stored overflow forecasts for every bin |
 | `score-predictions` | Grade past forecasts against observed overflows |
+| `dataset-info` | Count usable training images per waste category |
+| `train-classifier` | Fine-tune MobileNetV3 on the waste image dataset |
+| `classify-image` | Classify one photo from the command line |
+| `export-reviewed` | Fold human-corrected images back into the training set |
+
+### Waste image classification
+
+The classifier needs labelled photos, which are not in the repository. Point it
+at any folder with one subdirectory per category:
+
+```
+ml/datasets/waste/
+  plastic/   paper/   metal/   glass/   organic/   other/
+```
+
+Common public datasets work unmodified — [TrashNet](https://github.com/garythung/trashnet)
+and the Kaggle *Garbage Classification* sets are both folder-per-class. Their
+folder names are mapped onto our six categories automatically, so `cardboard`
+lands in `paper` and `trash` in `other`.
+
+```powershell
+python -m app.cli dataset-info        # check what was found before training
+python -m app.cli train-classifier    # ~10 minutes on CPU for ~2.5k images
+python -m app.cli classify-image path\to\photo.jpg --bin-id 42
+```
+
+Training prints per-category precision and recall, not just overall accuracy,
+because a model that is excellent at paper and useless at metal would look fine
+on accuracy alone. Passing `--bin-id` also checks the item against what that bin
+is meant to hold, which is how stream contamination is detected.
+
+Predictions below the confidence threshold are flagged for human review rather
+than trusted. Corrections made through `POST /api/v1/classify/{id}/review` can
+be exported back into the dataset with `export-reviewed`, so the model improves
+on the cases it actually got wrong.
 
 **Optional GPU:** to train the image classifier on an NVIDIA card, after step 1 run
 `pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu121`.

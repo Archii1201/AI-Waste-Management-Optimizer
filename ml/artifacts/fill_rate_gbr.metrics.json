@@ -1,6 +1,6 @@
 {
-  "model_version": "fill_rate_gbr-20260919102947",
-  "trained_at": "2026-09-19T10:29:47.797188+00:00",
+  "model_version": "fill_rate_gbr-20260919125624",
+  "trained_at": "2026-09-19T12:56:24.172437+00:00",
   "rows_total": 462157,
   "rows_train": 369725,
   "rows_validation": 92432,

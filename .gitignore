@@ -42,6 +42,9 @@ ml/artifacts/**/*.pth
 ml/artifacts/**/*.onnx
 ml/data/raw/
 ml/data/processed/
+# Training images and uploaded photos: bulky, and uploads may be site imagery.
+ml/datasets/
+ml/uploads/
 !ml/artifacts/**/metrics.json
 !ml/artifacts/**/.gitkeep
 

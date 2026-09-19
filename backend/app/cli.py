@@ -280,5 +280,163 @@ def score_predictions(
     console.print(f"[green]Scored[/] {scored} forecasts against observed overflows")
 
 
+# ---------------------------------------------------------------------------
+# Waste image classification
+# ---------------------------------------------------------------------------
+@app.command("dataset-info")
+def dataset_info(
+    data_dir: str | None = typer.Option(None, help="Dataset root (default: from settings)"),
+) -> None:
+    """Report how many usable images exist per category, before training."""
+    from pathlib import Path
+
+    from app.ml.classification.dataset import describe, discover_samples, verify_images
+    from app.ml.classification.labels import CLASS_LABELS
+
+    directory = Path(data_dir) if data_dir else settings.dataset_path
+    if not directory.exists():
+        console.print(f"[red]Missing:[/] {directory}")
+        console.print(
+            "Create one subfolder per category and drop images in:\n  "
+            + "\n  ".join(str(directory / label) for label in CLASS_LABELS)
+        )
+        raise typer.Exit(code=1)
+
+    samples = verify_images(discover_samples(directory))
+    counts = describe(samples)
+
+    table = Table(title=f"Dataset at {directory}")
+    table.add_column("Category")
+    table.add_column("Images", justify="right")
+    for label, count in counts.items():
+        table.add_row(label, f"{count:,}" if count else "[red]0[/]")
+    table.add_row("[bold]Total[/]", f"[bold]{len(samples):,}[/]")
+    console.print(table)
+
+
+@app.command("train-classifier")
+def train_classifier(
+    data_dir: str | None = typer.Option(None, help="Dataset root (default: from settings)"),
+    epochs: int = typer.Option(12, help="Maximum epochs; early stopping usually ends sooner"),
+    warmup_epochs: int = typer.Option(2, help="Epochs with the backbone frozen"),
+    batch_size: int = typer.Option(32),
+    head_lr: float = typer.Option(1e-3, help="Learning rate for the new head"),
+    backbone_lr: float = typer.Option(1e-4, help="Learning rate for the pretrained backbone"),
+    no_pretrained: bool = typer.Option(
+        False, "--no-pretrained", help="Train from scratch instead of ImageNet weights"
+    ),
+    num_workers: int = typer.Option(0, help="DataLoader workers; keep 0 on Windows"),
+) -> None:
+    """Fine-tune MobileNetV3 to classify waste images into the six categories."""
+    from pathlib import Path
+
+    from app.ml.classification.predictor import WasteClassifier
+    from app.ml.classification.train import train_classifier as run_training
+
+    result = run_training(
+        data_dir=Path(data_dir) if data_dir else None,
+        epochs=epochs,
+        warmup_epochs=warmup_epochs,
+        batch_size=batch_size,
+        head_lr=head_lr,
+        backbone_lr=backbone_lr,
+        pretrained=not no_pretrained,
+        num_workers=num_workers,
+    )
+
+    per_class_table = Table(title=f"Per-category validation scores - {result.model_version}")
+    per_class_table.add_column("Category")
+    per_class_table.add_column("Precision", justify="right")
+    per_class_table.add_column("Recall", justify="right")
+    per_class_table.add_column("F1", justify="right")
+    per_class_table.add_column("Images", justify="right")
+    for label, scores in result.per_class.items():
+        per_class_table.add_row(
+            label,
+            f"{scores['precision']:.3f}",
+            f"{scores['recall']:.3f}",
+            f"{scores['f1']:.3f}",
+            str(int(scores["support"])),
+        )
+    console.print(per_class_table)
+
+    console.print(
+        f"Accuracy [bold]{result.metrics['val_accuracy']:.3f}[/] | "
+        f"macro-F1 [bold]{result.metrics['val_macro_f1']:.3f}[/] | "
+        f"recyclable-vs-not [bold]{result.metrics['recyclable_accuracy']:.3f}[/]"
+    )
+    console.print(
+        f"Calibration error {result.metrics['val_calibration_error_uncalibrated']:.3f} "
+        f"-> [bold]{result.metrics['val_calibration_error']:.3f}[/] "
+        f"after temperature scaling (T={result.temperature:.2f})"
+    )
+
+    WasteClassifier.reset_cache()
+    console.print(f"[green]Saved:[/] {result.artifact_path}")
+
+
+@app.command("classify-image")
+def classify_image(
+    image_path: str = typer.Argument(..., help="Path to the photo to classify"),
+    bin_id: int | None = typer.Option(None, help="Check the item against this bin's stream"),
+) -> None:
+    """Classify a single image from the command line."""
+    from pathlib import Path
+
+    from app.services import classification_service
+
+    path = Path(image_path)
+    if not path.exists():
+        console.print(f"[red]No such file:[/] {path}")
+        raise typer.Exit(code=1)
+
+    with SessionLocal() as session:
+        record, result, contamination = classification_service.classify_and_store(
+            session, data=path.read_bytes(), filename=path.name, bin_id=bin_id
+        )
+
+        table = Table(title=f"{path.name} -> {result.predicted_class.value}")
+        table.add_column("Category")
+        table.add_column("Probability", justify="right")
+        for label, probability in sorted(
+            result.probabilities.items(), key=lambda pair: pair[1], reverse=True
+        ):
+            table.add_row(label, f"{probability:.3f}")
+        console.print(table)
+
+        console.print(
+            f"Confidence [bold]{result.confidence:.3f}[/] in "
+            f"{result.inference_ms:.0f}ms | recyclable: {result.is_recyclable}"
+        )
+        if result.needs_review:
+            console.print("[yellow]Low confidence - flagged for human review[/]")
+        if contamination.is_contaminant:
+            console.print(f"[red]Contamination:[/] {contamination.message}")
+        console.print(f"Stored as classification #{record.id}")
+
+
+@app.command("export-reviewed")
+def export_reviewed(
+    destination: str = typer.Option(
+        None, help="Where to write the corrected images (default: dataset dir)"
+    ),
+) -> None:
+    """Fold human-corrected images back into the training set."""
+    from pathlib import Path
+
+    from app.services import classification_service
+
+    target = Path(destination) if destination else settings.dataset_path
+    with SessionLocal() as session:
+        exported = classification_service.export_reviewed_images(session, target)
+
+    if not exported:
+        console.print("[yellow]No reviewed classifications to export yet[/]")
+        return
+    for label, count in exported.items():
+        console.print(f"  {label}: {count}")
+    console.print(f"[green]Exported[/] {sum(exported.values())} images to {target}")
+
+
 if __name__ == "__main__":
     app()
