@@ -11,7 +11,8 @@ __pycache__
 htmlcov
 .coverage
 node_modules
-frontend
+frontend/node_modules
+frontend/dist
 backend/tests
 ml/datasets
 ml/uploads

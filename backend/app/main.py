@@ -14,6 +14,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
 from app.core.config import PROJECT_ROOT, settings
@@ -52,6 +53,10 @@ async def lifespan(app: FastAPI):
             "Live Simulation is in-process: this process must be the only uvicorn worker. "
             "A restart clears simulation state."
         )
+    if _spa_enabled():
+        logger.info("Serving React dashboard from %s", _frontend_dist())
+    else:
+        logger.info("frontend/dist not found; GET / returns the API JSON root")
     yield
     from app.services import simulation_control
 
@@ -87,13 +92,26 @@ def create_app() -> FastAPI:
 
     if _spa_enabled():
         dist = _frontend_dist()
+        assets = dist / "assets"
+        if assets.is_dir():
+            app.mount("/assets", StaticFiles(directory=assets), name="frontend-assets")
+
+        @app.get("/", include_in_schema=False)
+        def spa_index():
+            return FileResponse(dist / "index.html")
 
         @app.get("/{full_path:path}", include_in_schema=False)
         def spa(full_path: str):
-            if full_path.startswith("api/") or full_path in {"docs", "redoc", "openapi.json"}:
+            if full_path == "api" or full_path.startswith("api/"):
                 raise HTTPException(status_code=404)
-            candidate = dist / full_path
-            if full_path and candidate.is_file():
+            if full_path in {"docs", "redoc", "openapi.json"}:
+                raise HTTPException(status_code=404)
+            candidate = (dist / full_path).resolve()
+            try:
+                candidate.relative_to(dist.resolve())
+            except ValueError:
+                raise HTTPException(status_code=404) from None
+            if candidate.is_file():
                 return FileResponse(candidate)
             return FileResponse(dist / "index.html")
     else:

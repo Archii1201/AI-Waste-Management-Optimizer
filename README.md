@@ -168,16 +168,17 @@ joblib file; image classification is unavailable without the `.pt` file.
 
 ## F. Frontend production build
 
+Railway Docker builds the Vite app inside the image. `VITE_API_BASE_URL` stays
+empty so the dashboard calls same-origin `/api/v1`. Local Vite still uses the
+dev proxy (`npm run dev`).
+
+Optional local production bundle (not required for Railway):
+
 ```powershell
 cd frontend
-# Split hosting: set the API origin before build
-#   $env:VITE_API_BASE_URL="https://your-api-domain.example.com"
 npm ci
 npm run build
 ```
-
-Output is `frontend/dist/`. Empty `VITE_API_BASE_URL` keeps same-origin `/api/v1`
-(combined deploy or a reverse proxy).
 
 ---
 
@@ -186,7 +187,7 @@ Output is `frontend/dist/`. Empty `VITE_API_BASE_URL` keeps same-origin `/api/v1
 Use the platform `PORT`. **One worker** is required.
 
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --app-dir backend
+sh -c 'uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --workers 1 --app-dir backend'
 ```
 
 PowerShell local equivalent:
@@ -199,8 +200,8 @@ uvicorn app.main:app --host 0.0.0.0 --port $env:PORT --workers 1 --app-dir backe
 
 ## H. Docker usage
 
-The `Dockerfile` is a CPU image for the API (Python 3.11, `requirements.txt`,
-no CUDA). It does not bake a frontend build.
+Multi-stage CPU image: Node builds `frontend/dist`, then Python 3.11 runs FastAPI
+and serves that `dist` at `/`. No CUDA. Model weights are copied in; `.env` is not.
 
 ```powershell
 docker build -t ecoflow-ai .
@@ -209,30 +210,31 @@ docker run -p 8000:8000 `
   -e ENVIRONMENT=production `
   -e DATABASE_URL="postgresql+psycopg://..." `
   -e SECRET_KEY="..." `
-  -e CORS_ORIGINS="https://your-frontend-domain.example.com" `
   ecoflow-ai
 ```
 
+Same origin: `GET /` is the React dashboard, `GET /api/v1/*` is the API. Leave
+`CORS_ORIGINS` empty for this combined service.
+
 Run migrations against the same `DATABASE_URL` before serving traffic
-(`alembic upgrade head` from `backend/`). Copy model artifacts into
-`ml/artifacts` on the host or into the image at runtime.
+(`alembic upgrade head` from `backend/`).
 
 ---
 
 ## I. Deployment architecture
 
-Recommended public demo:
+**One Railway web service** (Docker) serves:
 
-1. **PostgreSQL** — Neon, Railway, or Render Postgres
-2. **Always-on FastAPI** — Railway or Render Web Service (not serverless). Use
-   the `Procfile` / Docker start command with `--workers 1`
-3. **Frontend** — Vercel/Netlify static `dist/` with `VITE_API_BASE_URL`, **or**
-   copy `frontend/dist` next to the API so FastAPI serves the SPA at `/` and
-   the API at `/api/v1` (same origin; leave `CORS_ORIGINS` empty)
+- React frontend
+- FastAPI backend
+- ML services (fill prediction + image classification)
+- OR-Tools routing
 
-Do not host the API on Vercel/Netlify functions. Live Simulation, OR-Tools, and
-PyTorch need a persistent process and enough RAM (about 2 GB if the classifier
-stays enabled).
+No separate frontend host is required.
+
+Also needed: a PostgreSQL database (Railway/Neon/Render). Do not put the API on
+Vercel/Netlify functions. Use `--workers 1`. Plan about 2 GB RAM if the
+classifier stays enabled.
 
 ---
 
