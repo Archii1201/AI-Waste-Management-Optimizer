@@ -33,7 +33,13 @@ if TYPE_CHECKING:
 
 class Route(Base, TimestampMixin):
     __tablename__ = "routes"
-    __table_args__ = (Index("ix_routes_date_status", "planned_for", "status"),)
+    __table_args__ = (
+        Index("ix_routes_date_status", "planned_for", "status"),
+        # SQLite recycles the highest rowid after a delete, so a replanned
+        # route would silently reuse the id of the plan it replaced. AUTOINCREMENT
+        # makes ids monotonic, matching PostgreSQL sequence behaviour.
+        {"sqlite_autoincrement": True},
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[str] = mapped_column(String(48), unique=True, index=True, nullable=False)
