@@ -148,6 +148,9 @@ Check what landed with `python -m app.cli status`.
 | `priorities` | Rank bins by collection priority |
 | `optimize-routes` | Plan optimised vehicle routes for today |
 | `route-summary` | Distance, cost and the saving over unoptimised order |
+| `detect-alerts` | Run overflow, anomaly and sensor-health rules |
+| `analytics` | Print collection, route, fill and waste statistics |
+| `recommendations` | Print operational recommendations |
 
 ### Prioritisation and routing
 
