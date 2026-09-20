@@ -35,7 +35,8 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # ---------- ML artifacts ----------
-# Trained weights and datasets are large; regenerate with the training scripts.
+# Keep extra/experimental weights out of git. The two production models below
+# are required in the Docker image and are therefore tracked.
 ml/artifacts/*.joblib
 ml/artifacts/*.pt
 ml/artifacts/*.pth
@@ -49,6 +50,8 @@ ml/datasets/
 ml/uploads/
 !ml/artifacts/**/metrics.json
 !ml/artifacts/**/.gitkeep
+!ml/artifacts/fill_rate_gbr.joblib
+!ml/artifacts/waste_mobilenetv3.pt
 
 # ---------- Local data ----------
 *.sqlite3

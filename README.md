@@ -154,15 +154,15 @@ alembic stamp head
 
 ## E. Model artifact requirements
 
-Trained weights are **gitignored**. Classification and gradient-boosting forecasts
-need these files under `ML_ARTIFACT_DIR` (default `ml/artifacts/`):
+Paths are unchanged (`ML_ARTIFACT_DIR`, default `ml/artifacts/`). The production
+image copies these two trained files as-is (do not retrain to deploy):
 
-- `fill_rate_gbr.joblib`
-- `waste_mobilenetv3.pt`
+- `ml/artifacts/fill_rate_gbr.joblib`
+- `ml/artifacts/waste_mobilenetv3.pt`
 
-Upload or copy them onto the API host. Fill prediction degrades to rolling /
-zone fallbacks without the joblib file. Image classification is unavailable
-without the `.pt` file. Do not commit `*.joblib`, `*.pt`, or `*.pth`.
+Those two files are tracked so Docker/Git deploys include them. Other `*.joblib`,
+`*.pt`, and `*.pth` files stay gitignored. Fill prediction degrades without the
+joblib file; image classification is unavailable without the `.pt` file.
 
 ---
 

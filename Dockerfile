@@ -23,6 +23,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend ./backend
 COPY ml ./ml
+# Fail the build if production weights are missing from the build context.
+COPY ml/artifacts/fill_rate_gbr.joblib ./ml/artifacts/fill_rate_gbr.joblib
+COPY ml/artifacts/waste_mobilenetv3.pt ./ml/artifacts/waste_mobilenetv3.pt
 
 WORKDIR /app/backend
 
