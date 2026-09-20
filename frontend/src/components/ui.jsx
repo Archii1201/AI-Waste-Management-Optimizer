@@ -3,6 +3,11 @@ export function fmt(value, digits = 0, suffix = "") {
   return `${Number(value).toFixed(digits)}${suffix}`;
 }
 
+export function na(value, digits = 0, suffix = "") {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "N/A";
+  return `${Number(value).toFixed(digits)}${suffix}`;
+}
+
 export function fmtWhen(value) {
   if (!value) return "—";
   const date = new Date(value);

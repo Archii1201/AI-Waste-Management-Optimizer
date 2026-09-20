@@ -1,4 +1,5 @@
 import { EmptyState, SeverityBadge } from "./ui.jsx";
+import { sanitizeOperatorText } from "../lib/operatorCopy.js";
 
 const EVIDENCE_LABELS = {
   avg_fill_level: "average fill",
@@ -34,14 +35,14 @@ export default function Recommendations({ items }) {
                 <span className="text-xs uppercase tracking-wide text-slate-500">{item.category}</span>
               </div>
               <p className="font-medium">{item.title}</p>
-              <p className="muted mt-1">{item.detail}</p>
-              <p className="mt-2 text-sm text-emerald-300">Action: {item.action}</p>
+              <p className="muted mt-1">{sanitizeOperatorText(item.detail)}</p>
+              <p className="mt-2 text-sm text-emerald-300">Action: {sanitizeOperatorText(item.action)}</p>
               <details className="mt-3">
                 <summary className="cursor-pointer text-sm text-slate-300">
                   Why this recommendation?
                 </summary>
                 <div className="mt-2 space-y-2 text-sm">
-                  <p className="muted">{item.detail}</p>
+                  <p className="muted">{sanitizeOperatorText(item.detail)}</p>
                   {item.evidence && Object.keys(item.evidence).length > 0 && (
                     <div>
                       <p className="mb-1 font-medium">Evidence</p>
@@ -56,7 +57,7 @@ export default function Recommendations({ items }) {
                   )}
                   <p>
                     <span className="font-medium">Recommended action: </span>
-                    {item.action}
+                    {sanitizeOperatorText(item.action)}
                   </p>
                 </div>
               </details>

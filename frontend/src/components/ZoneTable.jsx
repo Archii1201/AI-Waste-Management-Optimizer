@@ -4,6 +4,9 @@ export default function ZoneTable({ zones }) {
   return (
     <section className="card overflow-hidden">
       <h2 className="mb-3 font-semibold">Zone performance</h2>
+      <p className="muted mb-3 text-xs">
+        Overflow counts are lifetime totals per zone, not a live windowed series.
+      </p>
       {zones.length === 0 ? (
         <EmptyState label="No zone analytics yet. Seed the network first." />
       ) : (
@@ -16,7 +19,7 @@ export default function ZoneTable({ zones }) {
                 <th className="pb-2 font-medium">Bins</th>
                 <th className="pb-2 font-medium">Avg fill</th>
                 <th className="pb-2 font-medium">kg/bin/day</th>
-                <th className="pb-2 font-medium">Overflows</th>
+                <th className="pb-2 font-medium">Lifetime overflows</th>
                 <th className="pb-2 font-medium">Alerts</th>
               </tr>
             </thead>

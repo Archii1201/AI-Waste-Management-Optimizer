@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -9,7 +9,8 @@ import {
   YAxis,
 } from "recharts";
 import { api } from "../api/client.js";
-import { EmptyState, PanelError, SeverityBadge, fmt, fmtOverflow, fmtWhen } from "./ui.jsx";
+import { getCachedHistory, setCachedHistory } from "../lib/binHistoryCache.js";
+import { EmptyState, SeverityBadge, fmt, fmtOverflow, fmtWhen } from "./ui.jsx";
 
 export default function BinDetails({
   binId,
@@ -17,6 +18,7 @@ export default function BinDetails({
   zones,
   priorities,
   predictions,
+  refreshToken,
   onClose,
   onViewMap,
 }) {
@@ -29,42 +31,108 @@ export default function BinDetails({
     () => priorities.find((item) => item.bin_id === binId),
     [priorities, binId]
   );
-  const [readings, setReadings] = useState([]);
-  const [collections, setCollections] = useState([]);
-  const [prediction, setPrediction] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const listedPrediction = useMemo(
+    () => predictions.find((item) => item.bin_id === binId) || null,
+    [predictions, binId]
+  );
+
+  const cached = binId ? getCachedHistory(binId) : null;
+  const [readings, setReadings] = useState(cached?.readings || []);
+  const [collections, setCollections] = useState(cached?.collections || []);
+  const [historyLoading, setHistoryLoading] = useState(!cached);
+  const [historyError, setHistoryError] = useState(null);
+  const inFlight = useRef(false);
+  const appliedToken = useRef(cached?.token ?? null);
 
   useEffect(() => {
     if (!binId) return undefined;
+    const existing = getCachedHistory(binId);
+    if (existing) {
+      setReadings(existing.readings || []);
+      setCollections(existing.collections || []);
+      setHistoryLoading(false);
+      setHistoryError(null);
+      appliedToken.current = existing.token ?? null;
+    } else {
+      setReadings([]);
+      setCollections([]);
+      setHistoryLoading(true);
+      setHistoryError(null);
+      appliedToken.current = null;
+    }
+
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    const cached = predictions.find((item) => item.bin_id === binId) || null;
-    Promise.all([
-      api.binReadings(binId, 400),
-      api.binCollections(binId, 5),
-      cached ? Promise.resolve(cached) : api.binPrediction(binId),
-    ])
-      .then(([history, events, forecast]) => {
+
+    async function loadHistory(silent) {
+      if (inFlight.current) return;
+      inFlight.current = true;
+      if (!silent) setHistoryLoading(true);
+      try {
+        const [history, events] = await Promise.all([
+          api.binReadings(binId, 200),
+          api.binCollections(binId, 5),
+        ]);
         if (cancelled) return;
-        setReadings(history || []);
-        setCollections(events || []);
-        setPrediction(forecast);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.message || "Could not load bin details");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+        const next = { readings: history || [], collections: events || [], token: refreshToken };
+        setCachedHistory(binId, next);
+        setReadings(next.readings);
+        setCollections(next.collections);
+        setHistoryError(null);
+        appliedToken.current = refreshToken;
+      } catch {
+        if (!cancelled) {
+          setHistoryError("History temporarily unavailable");
+        }
+      } finally {
+        inFlight.current = false;
+        if (!cancelled) setHistoryLoading(false);
+      }
+    }
+
+    const hasFreshCache = existing && existing.token === refreshToken;
+    if (!hasFreshCache) loadHistory(Boolean(existing));
+
     return () => {
       cancelled = true;
     };
-  }, [binId, predictions]);
+  }, [binId]);
+
+  useEffect(() => {
+    if (!binId || !refreshToken) return undefined;
+    if (appliedToken.current === refreshToken) return undefined;
+    if (inFlight.current) return undefined;
+    let cancelled = false;
+
+    async function silent() {
+      inFlight.current = true;
+      try {
+        const [history, events] = await Promise.all([
+          api.binReadings(binId, 200),
+          api.binCollections(binId, 5),
+        ]);
+        if (cancelled) return;
+        const next = { readings: history || [], collections: events || [], token: refreshToken };
+        setCachedHistory(binId, next);
+        setReadings(next.readings);
+        setCollections(next.collections);
+        setHistoryError(null);
+        appliedToken.current = refreshToken;
+      } catch {
+        /* keep last history */
+      } finally {
+        inFlight.current = false;
+      }
+    }
+
+    silent();
+    return () => {
+      cancelled = true;
+    };
+  }, [binId, refreshToken]);
 
   if (!binId) return null;
 
+  const forecast = listedPrediction;
   const lastCollection = collections[0]?.collected_at || bin?.last_emptied_at;
   const chartRows = (readings || []).map((row) => ({
     t: new Date(row.recorded_at).toLocaleString(),
@@ -92,65 +160,72 @@ export default function BinDetails({
           </div>
         </div>
 
-        {loading && <p className="muted py-8 text-center">Loading bin history…</p>}
-        {error && <PanelError message={error} />}
+        {bin ? (
+          <dl className="mb-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+            <Stat label="Zone" value={zone?.zone_name || `Zone ${bin.zone_id}`} />
+            <Stat label="Fill" value={fmt(bin.current_fill_level, 1, "%")} />
+            <Stat label="Capacity" value={`${fmt(bin.capacity_liters, 0)} L`} />
+            <Stat label="Waste type" value={bin.waste_type} />
+            <Stat
+              label="Battery"
+              value={bin.battery_level == null ? "—" : fmt(bin.battery_level, 0, "%")}
+            />
+            <Stat label="Last collection" value={fmtWhen(lastCollection)} />
+            <Stat
+              label="Priority"
+              value={
+                priority ? (
+                  <span className="flex items-center gap-2">
+                    <SeverityBadge value={priority.tier} />
+                    <span>{fmt(priority.score, 2)}</span>
+                  </span>
+                ) : (
+                  bin.fill_status
+                )
+              }
+            />
+            <Stat
+              label="Predicted overflow"
+              value={fmtOverflow(forecast?.hours_to_full, forecast?.predicted_full_at)}
+            />
+          </dl>
+        ) : (
+          <p className="muted mb-4">Bin {binId}</p>
+        )}
 
-        {!loading && bin && (
-          <>
-            <dl className="mb-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-              <Stat label="Zone" value={zone?.zone_name || `Zone ${bin.zone_id}`} />
-              <Stat label="Fill" value={fmt(bin.current_fill_level, 1, "%")} />
-              <Stat label="Capacity" value={`${fmt(bin.capacity_liters, 0)} L`} />
-              <Stat label="Waste type" value={bin.waste_type} />
-              <Stat
-                label="Battery"
-                value={bin.battery_level == null ? "—" : fmt(bin.battery_level, 0, "%")}
-              />
-              <Stat label="Last collection" value={fmtWhen(lastCollection)} />
-              <Stat
-                label="Priority"
-                value={
-                  priority ? (
-                    <span className="flex items-center gap-2">
-                      <SeverityBadge value={priority.tier} />
-                      <span>{fmt(priority.score, 2)}</span>
-                    </span>
-                  ) : (
-                    bin.fill_status
-                  )
-                }
-              />
-              <Stat
-                label="Predicted overflow"
-                value={fmtOverflow(prediction?.hours_to_full, prediction?.predicted_full_at)}
-              />
-            </dl>
+        {forecast && (
+          <p className="muted mb-4">
+            Rate {fmt(forecast.predicted_fill_rate_pct_per_hour, 2, " pp/h")} · method{" "}
+            {forecast.method?.replaceAll("_", " ")}
+            {forecast.is_model_backed === false ? " (fallback)" : ""}
+          </p>
+        )}
 
-            {prediction && (
-              <p className="muted mb-4">
-                Rate {fmt(prediction.predicted_fill_rate_pct_per_hour, 2, " pp/h")} · method{" "}
-                {prediction.method?.replaceAll("_", " ")}
-                {prediction.is_model_backed === false ? " (fallback)" : ""}
-              </p>
+        <h3 className="mb-2 text-sm font-medium">Fill history</h3>
+        {historyLoading && chartRows.length === 0 && (
+          <div className="h-32 animate-pulse rounded-xl border border-line bg-ink/50" />
+        )}
+        {historyError && chartRows.length === 0 && (
+          <p className="muted py-4 text-center">{historyError}</p>
+        )}
+        {!historyLoading && !historyError && chartRows.length === 0 && (
+          <EmptyState label="No fill-level readings stored for this bin." />
+        )}
+        {chartRows.length > 0 && (
+          <div className="h-56">
+            {historyLoading && (
+              <p className="muted mb-2 text-xs">Updating history…</p>
             )}
-
-            <h3 className="mb-2 text-sm font-medium">Fill history</h3>
-            {chartRows.length === 0 ? (
-              <EmptyState label="No fill-level readings stored for this bin." />
-            ) : (
-              <div className="h-56">
-                <ResponsiveContainer>
-                  <LineChart data={chartRows}>
-                    <CartesianGrid stroke="#243049" vertical={false} />
-                    <XAxis dataKey="t" hide />
-                    <YAxis domain={[0, 100]} tick={{ fill: "#94a3b8", fontSize: 12 }} />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="fill" stroke="#34d399" dot={false} name="Fill %" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </>
+            <ResponsiveContainer>
+              <LineChart data={chartRows}>
+                <CartesianGrid stroke="#243049" vertical={false} />
+                <XAxis dataKey="t" hide />
+                <YAxis domain={[0, 100]} tick={{ fill: "#94a3b8", fontSize: 12 }} />
+                <Tooltip />
+                <Line type="monotone" dataKey="fill" stroke="#34d399" dot={false} name="Fill %" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
         )}
       </div>
     </div>

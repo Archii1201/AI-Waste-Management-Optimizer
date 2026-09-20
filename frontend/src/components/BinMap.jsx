@@ -35,6 +35,7 @@ export default function BinMap({
   selectedBinId,
   focusTarget,
   onSelectBin,
+  overlayLabel,
 }) {
   const center = reference?.map?.center || [19.076, 72.8777];
   const city = reference?.map?.city || "Mumbai";
@@ -42,9 +43,16 @@ export default function BinMap({
 
   return (
     <section className="card">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className="font-semibold">Bin map · {city}</h2>
-        <p className="muted">{bins.length} bins</p>
+        <div className="flex items-center gap-2">
+          {overlayLabel && (
+            <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-200">
+              {overlayLabel}
+            </span>
+          )}
+          <p className="muted">{bins.length} bins</p>
+        </div>
       </div>
       {bins.length === 0 ? (
         <EmptyState label="No bins with coordinates to plot." />
