@@ -438,5 +438,122 @@ def export_reviewed(
     console.print(f"[green]Exported[/] {sum(exported.values())} images to {target}")
 
 
+# ---------------------------------------------------------------------------
+# Prioritisation and routing
+# ---------------------------------------------------------------------------
+@app.command("priorities")
+def priorities(
+    zone_id: int | None = typer.Option(None, help="Restrict to one zone"),
+    min_score: float | None = typer.Option(None, help="Only show bins at or above this score"),
+    top: int = typer.Option(20, help="How many bins to print"),
+) -> None:
+    """Rank bins by collection priority."""
+    from app.services import prioritization
+
+    with SessionLocal() as session:
+        ranked = prioritization.prioritize(
+            session, zone_id=zone_id, min_score=min_score, limit=top
+        )
+        counts = prioritization.tier_counts(
+            prioritization.prioritize(session, zone_id=zone_id)
+        )
+
+        table = Table(title=f"Collection priorities - {counts}")
+        table.add_column("Bin")
+        table.add_column("Score", justify="right")
+        table.add_column("Tier")
+        table.add_column("Fill %", justify="right")
+        table.add_column("Full in", justify="right")
+        table.add_column("Why")
+
+        for item in ranked:
+            hours = item.hours_to_full
+            table.add_row(
+                item.bin.code,
+                f"{item.score:.3f}",
+                item.tier.value,
+                f"{item.bin.current_fill_level:.0f}",
+                "-" if hours is None else f"{hours:.1f}h",
+                "; ".join(item.reasons) or "routine",
+            )
+
+    console.print(table)
+
+
+@app.command("optimize-routes")
+def optimize_routes(
+    zone_id: int | None = typer.Option(None, help="Restrict the plan to one zone"),
+    min_score: float = typer.Option(0.35, help="Bins below this are not worth a trip"),
+    max_candidates: int = typer.Option(90, help="Cap on bins sent to the solver"),
+    time_limit: int = typer.Option(30, help="Solver time budget in seconds"),
+    no_osrm: bool = typer.Option(
+        False, "--no-osrm", help="Skip road distances and use straight-line estimates"
+    ),
+) -> None:
+    """Plan optimised collection routes for today."""
+    from app.services import route_service
+
+    with SessionLocal() as session:
+        report = route_service.plan_routes(
+            session,
+            zone_id=zone_id,
+            min_priority_score=min_score,
+            max_candidates=max_candidates,
+            time_limit_seconds=time_limit,
+            prefer_osrm=not no_osrm,
+        )
+
+        table = Table(title=f"Planned routes ({report.matrix_source} distances)")
+        table.add_column("Route")
+        table.add_column("Vehicle")
+        table.add_column("Stops", justify="right")
+        table.add_column("Distance", justify="right")
+        table.add_column("Duration", justify="right")
+        table.add_column("Load", justify="right")
+        table.add_column("Saved", justify="right")
+
+        for route in report.routes:
+            saved = route.distance_saved_pct
+            table.add_row(
+                route.code,
+                route.vehicle.code if route.vehicle else "-",
+                str(route.total_stops),
+                f"{route.total_distance_km:.1f} km",
+                f"{route.total_duration_minutes:.0f} min",
+                f"{route.planned_volume_liters:,.0f} L",
+                "-" if saved is None else f"{saved:.1f}%",
+            )
+
+        console.print(table)
+        console.print(
+            f"Considered {report.candidates_considered} bins | "
+            f"total [bold]{report.total_distance_km:.1f} km[/] across "
+            f"{report.total_stops} stops | solver {report.solver_status} "
+            f"in {report.solve_seconds:.1f}s"
+        )
+
+        if report.deferred:
+            console.print(
+                f"[yellow]{len(report.deferred)} bins deferred[/] "
+                f"(e.g. {report.deferred[0]['bin_code']}: {report.deferred[0]['reason']})"
+            )
+
+
+@app.command("route-summary")
+def route_summary() -> None:
+    """Distance, cost and efficiency gain across all stored plans."""
+    from app.services import route_service
+
+    with SessionLocal() as session:
+        data = route_service.route_summary(session)
+
+    table = Table(title="Route plan summary")
+    table.add_column("Metric")
+    table.add_column("Value", justify="right")
+    for key, value in data.items():
+        table.add_row(key.replace("_", " "), str(value))
+    console.print(table)
+
+
 if __name__ == "__main__":
     app()
