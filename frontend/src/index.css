@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.leaflet-container {
+  background: #0b1220;
+  font-family: inherit;
+}
+
+.leaflet-interactive {
+  cursor: pointer;
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-line bg-panel p-4 shadow-sm;
+  }
+  .muted {
+    @apply text-sm text-slate-400;
+  }
+  .btn-primary {
+    @apply rounded-lg bg-emerald-500 px-3 py-1.5 text-sm font-medium text-ink hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .btn-secondary {
+    @apply rounded-lg border border-line bg-ink px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+}
