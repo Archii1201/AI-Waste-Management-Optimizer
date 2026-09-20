@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client.js";
+
+const POLL_MS = 12000;
 
 function previousPeriod(current, doubled) {
   if (!current || !doubled) return null;
@@ -25,59 +27,135 @@ export function useDashboard(days, comparePrevious) {
   const [loading, setLoading] = useState(true);
   const [compareLoading, setCompareLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [staleError, setStaleError] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [updating, setUpdating] = useState(false);
+  const inFlight = useRef(false);
+  const queued = useRef(false);
+  const mounted = useRef(true);
+  const hasData = useRef(false);
+  const compareRef = useRef(comparePrevious);
+  const daysRef = useRef(days);
+  compareRef.current = comparePrevious;
+  daysRef.current = days;
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [
-        overview,
-        zones,
-        recommendations,
-        alerts,
-        routes,
-        binsPage,
-        reference,
-        priorities,
-        predictions,
-        vehiclesPage,
-      ] = await Promise.all([
-        api.overview(days),
-        api.zones(days),
-        api.recommendations(days),
-        api.alerts(),
-        api.routes(),
-        api.bins(),
-        api.reference(),
-        api.priorities(),
-        api.predictions().catch(() => []),
-        api.vehicles(),
-      ]);
-
-      setData({
-        overview,
-        zones,
-        collections: overview.collections,
-        waste: overview.waste,
-        fill: overview.fill,
-        recommendations,
-        routeAnalytics: overview.routes,
-        alerts,
-        alertSummary: overview.alerts,
-        routes,
-        bins: binsPage.items || [],
-        reference,
-        priorities: priorities || [],
-        predictions: predictions || [],
-        vehicles: vehiclesPage.items || [],
+  const applyPayload = useCallback((payload) => {
+    setData({
+      overview: payload.overview,
+      zones: payload.zones,
+      collections: payload.overview.collections,
+      waste: payload.overview.waste,
+      fill: payload.overview.fill,
+      recommendations: payload.recommendations,
+      routeAnalytics: payload.overview.routes,
+      alerts: payload.alerts,
+      alertSummary: payload.overview.alerts,
+      routes: payload.routes,
+      bins: payload.binsPage.items || [],
+      reference: payload.reference,
+      priorities: payload.priorities || [],
+      predictions: payload.predictions || [],
+      vehicles: payload.vehiclesPage.items || [],
+    });
+    if (payload.doubledCollections && payload.doubledWaste) {
+      setPrevious({
+        collections: payload.doubledCollections,
+        waste: payload.doubledWaste,
       });
-    } catch (err) {
-      setError(err.message || "Could not load dashboard data");
-      setData(null);
-    } finally {
-      setLoading(false);
+    } else if (!compareRef.current) {
+      setPrevious(null);
     }
-  }, [days]);
+    hasData.current = true;
+    setLastUpdated(new Date().toISOString());
+    setStaleError(null);
+    setError(null);
+  }, []);
+
+  const load = useCallback(async (silent = false) => {
+    if (inFlight.current) {
+      queued.current = true;
+      return;
+    }
+    inFlight.current = true;
+    const showSplash = !silent && !hasData.current;
+    if (showSplash) {
+      setLoading(true);
+      setError(null);
+    } else {
+      setUpdating(true);
+    }
+    if (compareRef.current && !silent) setCompareLoading(true);
+
+    try {
+      do {
+        queued.current = false;
+        const compare = compareRef.current;
+        const windowDays = daysRef.current;
+        const [
+          overview,
+          zones,
+          recommendations,
+          alerts,
+          routes,
+          binsPage,
+          reference,
+          priorities,
+          predictions,
+          vehiclesPage,
+          doubledCollections,
+          doubledWaste,
+        ] = await Promise.all([
+          api.overview(windowDays),
+          api.zones(windowDays),
+          api.recommendations(windowDays),
+          api.alerts(),
+          api.routes(),
+          api.bins(),
+          api.reference(),
+          api.priorities(),
+          api.predictions().catch(() => []),
+          api.vehicles(),
+          compare ? api.collections(windowDays * 2) : Promise.resolve(null),
+          compare ? api.waste(windowDays * 2) : Promise.resolve(null),
+        ]);
+        if (!mounted.current) return;
+        applyPayload({
+          overview,
+          zones,
+          recommendations,
+          alerts,
+          routes,
+          binsPage,
+          reference,
+          priorities,
+          predictions,
+          vehiclesPage,
+          doubledCollections,
+          doubledWaste,
+        });
+      } while (queued.current);
+    } catch (err) {
+      if (!mounted.current) return;
+      const message = err.message || "Could not load dashboard data";
+      if (hasData.current) {
+        setStaleError(message);
+      } else {
+        setError(message);
+        setData(null);
+      }
+      throw err;
+    } finally {
+      inFlight.current = false;
+      if (mounted.current) {
+        setLoading(false);
+        setUpdating(false);
+        setCompareLoading(false);
+      }
+    }
+  }, [applyPayload]);
+
+  const silentRefresh = useCallback(() => load(true).catch(() => {}), [load]);
+  const reload = useCallback(() => load(false).catch(() => {}), [load]);
 
   const refreshAlerts = useCallback(async () => {
     const [alerts, summary] = await Promise.all([api.alerts(), api.alertSummary()]);
@@ -93,6 +171,7 @@ export function useDashboard(days, comparePrevious) {
           }
         : current
     );
+    setLastUpdated(new Date().toISOString());
   }, []);
 
   const refreshRoutes = useCallback(async () => {
@@ -112,33 +191,38 @@ export function useDashboard(days, comparePrevious) {
           }
         : current
     );
+    setLastUpdated(new Date().toISOString());
   }, [days]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
-    if (!comparePrevious) {
-      setPrevious(null);
-      return undefined;
-    }
+    load(false).catch(() => {});
+  }, [days, comparePrevious, load]);
+
+  useEffect(() => {
+    let timer = null;
     let cancelled = false;
-    setCompareLoading(true);
-    Promise.all([api.collections(days * 2), api.waste(days * 2)])
-      .then(([collections, waste]) => {
-        if (!cancelled) setPrevious({ collections, waste });
-      })
-      .catch(() => {
-        if (!cancelled) setPrevious(null);
-      })
-      .finally(() => {
-        if (!cancelled) setCompareLoading(false);
-      });
+
+    function schedule() {
+      timer = setTimeout(async () => {
+        if (cancelled) return;
+        await silentRefresh();
+        if (!cancelled) schedule();
+      }, POLL_MS);
+    }
+
+    schedule();
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
-  }, [comparePrevious, days]);
+  }, [silentRefresh]);
 
   const previousMetrics =
     comparePrevious && data && previous
@@ -162,7 +246,11 @@ export function useDashboard(days, comparePrevious) {
     data,
     loading,
     error,
-    reload: load,
+    staleError,
+    lastUpdated,
+    updating,
+    reload,
+    silentRefresh,
     refreshAlerts,
     refreshRoutes,
     previousMetrics,

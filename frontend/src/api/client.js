@@ -1,4 +1,11 @@
-const API_PREFIX = "/api/v1";
+function apiPrefix() {
+  const raw = import.meta.env.VITE_API_BASE_URL;
+  const origin =
+    typeof raw === "string" ? raw.trim().replace(/\/+$/, "") : "";
+  return `${origin}/api/v1`;
+}
+
+const API_PREFIX = apiPrefix();
 
 export class ApiError extends Error {
   constructor(message, status) {
@@ -91,4 +98,13 @@ export const api = {
     if (binId) form.append("bin_id", String(binId));
     return request("/classify", { method: "POST", body: form });
   },
+  classifyStats: () => request("/classify/stats"),
+  classifyModel: () => request("/classify/model"),
+  predictionModel: () => request("/predictions/model"),
+  predictionAccuracy: (days = 7) => request(`/predictions/accuracy?lookback_days=${days}`),
+  simulationStatus: () => request("/simulation/status"),
+  simulationStart: () => postJson("/simulation/start", {}),
+  simulationStop: () => postJson("/simulation/stop", {}),
+  simulationTick: () => postJson("/simulation/tick", {}),
+  whatIf: (payload) => postJson("/scenarios/what-if", payload),
 };
