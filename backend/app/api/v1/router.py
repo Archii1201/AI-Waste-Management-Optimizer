@@ -11,7 +11,9 @@ from app.api.v1.endpoints import (
     classify,
     health,
     predictions,
+    priorities,
     reference,
+    routes,
     telemetry,
     vehicles,
     zones,
@@ -26,3 +28,5 @@ api_router.include_router(telemetry.router)
 api_router.include_router(vehicles.router)
 api_router.include_router(predictions.router)
 api_router.include_router(classify.router)
+api_router.include_router(priorities.router)
+api_router.include_router(routes.router)
