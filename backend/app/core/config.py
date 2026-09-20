@@ -10,8 +10,19 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+_DEV_CORS_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
 
 # Repository root: backend/app/core/config.py -> up four levels.
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -26,11 +37,14 @@ class Settings(BaseSettings):
     )
 
     # ---------- Application ----------
-    app_name: str = "AI Waste Management & Recycling Optimizer"
+    app_name: str = "EcoFlow AI"
     environment: str = "development"
     debug: bool = True
     log_level: str = "INFO"
     api_v1_prefix: str = "/api/v1"
+    # Local default. Production/Docker must bind 0.0.0.0 and the platform PORT.
+    host: str = "127.0.0.1"
+    port: int = 8000
 
     # ---------- Database ----------
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/waste_optimizer"
@@ -45,11 +59,11 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
 
     # ---------- CORS ----------
+    # Empty default: development falls back to local Vite origins; production
+    # falls back to same-origin (no localhost). Never default to "*".
     # NoDecode stops pydantic-settings from trying to JSON-parse the raw .env
     # value, so the validator below can accept a plain comma-separated list.
-    cors_origins: Annotated[list[str], NoDecode] = Field(
-        default_factory=lambda: ["http://localhost:3000"]
-    )
+    cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     # ---------- MQTT ----------
     mqtt_enabled: bool = True
@@ -109,8 +123,26 @@ class Settings(BaseSettings):
     def _split_cors_origins(cls, value: object) -> object:
         """Accept a comma-separated string from .env as well as a real list."""
         if isinstance(value, str):
-            return [origin.strip() for origin in value.split(",") if origin.strip()]
+            origins = []
+            for origin in value.split(","):
+                cleaned = origin.strip().rstrip("/")
+                if cleaned and cleaned != "*":
+                    origins.append(cleaned)
+            return origins
+        if isinstance(value, list):
+            return [
+                str(origin).strip().rstrip("/")
+                for origin in value
+                if str(origin).strip() and str(origin).strip() != "*"
+            ]
         return value
+
+    @model_validator(mode="after")
+    def _apply_production_guards(self) -> "Settings":
+        if self.environment.lower() == "production":
+            self.debug = False
+            self.db_echo = False
+        return self
 
     @field_validator("database_url")
     @classmethod
@@ -146,6 +178,22 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment.lower() == "production"
+
+    @property
+    def resolved_cors_origins(self) -> list[str]:
+        """Origins allowed by CORSMiddleware. Never includes '*'."""
+        configured = [origin for origin in self.cors_origins if origin and origin != "*"]
+        if self.is_production:
+            return [
+                origin
+                for origin in configured
+                if "localhost" not in origin and "127.0.0.1" not in origin
+            ]
+        return configured or list(_DEV_CORS_ORIGINS)
+
+    @property
+    def uses_placeholder_secret(self) -> bool:
+        return not self.secret_key or self.secret_key.startswith("change-me")
 
 
 @lru_cache

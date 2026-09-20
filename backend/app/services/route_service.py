@@ -100,6 +100,127 @@ def _next_code(db: Session, planned_for: date, vehicle: Vehicle) -> str:
     return f"{base}-{suffix}"
 
 
+def _build_vehicle_plans(vehicles: list[Vehicle], extra_rounds: int = 0) -> list[VehiclePlan]:
+    """One solver vehicle per fleet unit, plus optional extra shifts.
+
+    Extra rounds reuse the same physical fleet in memory only. They never
+    insert vehicles or routes.
+    """
+    copies = 1 + max(0, extra_rounds)
+    plans: list[VehiclePlan] = []
+    for round_i in range(copies):
+        suffix = "" if round_i == 0 else f"-R{round_i + 1}"
+        for vehicle in vehicles:
+            plans.append(
+                VehiclePlan(
+                    vehicle_id=vehicle.id + round_i * 100_000,
+                    code=f"{vehicle.code}{suffix}",
+                    depot=(vehicle.depot_lat, vehicle.depot_lon),
+                    capacity_liters=vehicle.capacity_liters,
+                    capacity_kg=vehicle.capacity_kg,
+                    shift_minutes=_shift_minutes(vehicle),
+                    avg_speed_kmph=vehicle.avg_speed_kmph,
+                    cost_per_km=vehicle.cost_per_km,
+                    accepted_waste_types=vehicle.accepted_waste_types,
+                )
+            )
+    return plans
+
+
+def preview_plan(
+    db: Session,
+    *,
+    vehicle_ids: list[int] | None = None,
+    min_priority_score: float = DEFAULT_MIN_PRIORITY_SCORE,
+    extra_rounds: int = 0,
+    horizon_hours: float | None = None,
+    max_candidates: int = DEFAULT_MAX_CANDIDATES,
+    time_limit_seconds: int | None = None,
+    prefer_osrm: bool = True,
+) -> dict:
+    """Solve a collection plan in memory. Does not write routes or vehicles."""
+    vehicles = _available_vehicles(db, vehicle_ids)
+    if not vehicles:
+        raise OptimizationError(
+            "No vehicles available to plan with. Check the fleet is active and "
+            "not all in maintenance."
+        )
+
+    origin = (vehicles[0].depot_lat, vehicles[0].depot_lon)
+    ranked = prioritization.prioritize(
+        db,
+        origin=origin,
+        min_score=min_priority_score,
+        limit=max_candidates,
+    )
+    if horizon_hours is not None:
+        ranked = [
+            item
+            for item in ranked
+            if item.is_overdue
+            or (
+                item.hours_to_full is not None and item.hours_to_full <= horizon_hours
+            )
+        ]
+    if not ranked:
+        raise OptimizationError(
+            "No bins match this scenario. Try a lower priority threshold or a "
+            "longer planning horizon."
+        )
+
+    result = solve(
+        ranked,
+        _build_vehicle_plans(vehicles, extra_rounds=extra_rounds),
+        time_limit_seconds=time_limit_seconds,
+        prefer_osrm=prefer_osrm,
+    )
+
+    served = {stop.bin_id for route in result.routes for stop in route.stops}
+    overflow_risk = [
+        item
+        for item in ranked
+        if item.is_overdue
+        or (item.hours_to_full is not None and item.hours_to_full <= (horizon_hours or 24))
+    ]
+
+    return {
+        "vehicles": len(vehicles),
+        "vehicle_shifts": len(vehicles) * (1 + max(0, extra_rounds)),
+        "routes": [
+            {
+                "id": f"whatif-{index}",
+                "code": route.vehicle_code,
+                "vehicle_id": route.vehicle_id,
+                "status": "what_if",
+                "total_stops": route.stop_count,
+                "total_distance_km": route.total_distance_km,
+                "planned_volume_liters": route.planned_volume_liters,
+                "planned_weight_kg": route.planned_weight_kg,
+                "stops": [
+                    {
+                        "bin_id": stop.bin_id,
+                        "sequence": stop.sequence,
+                        "priority_score": stop.priority_score,
+                    }
+                    for stop in route.stops
+                ],
+            }
+            for index, route in enumerate(result.routes)
+        ],
+        "total_distance_km": result.total_distance_km,
+        "total_stops": sum(route.stop_count for route in result.routes),
+        "planned_volume_liters": round(
+            sum(route.planned_volume_liters for route in result.routes), 1
+        ),
+        "priority_bins": len(ranked),
+        "overflow_risk_bins": len(overflow_risk),
+        "unassigned_overflow_risk_bins": sum(1 for item in overflow_risk if item.bin.id not in served),
+        "deferred_bins": len(result.deferred),
+        "solver_status": result.status,
+        "candidates_considered": len(ranked),
+    }
+
+
 def plan_routes(
     db: Session,
     *,
@@ -141,21 +262,7 @@ def plan_routes(
             "or predictions have not been refreshed yet."
         )
 
-    plans = [
-        VehiclePlan(
-            vehicle_id=vehicle.id,
-            code=vehicle.code,
-            depot=(vehicle.depot_lat, vehicle.depot_lon),
-            capacity_liters=vehicle.capacity_liters,
-            capacity_kg=vehicle.capacity_kg,
-            shift_minutes=_shift_minutes(vehicle),
-            avg_speed_kmph=vehicle.avg_speed_kmph,
-            cost_per_km=vehicle.cost_per_km,
-            accepted_waste_types=vehicle.accepted_waste_types,
-        )
-        for vehicle in vehicles
-    ]
-
+    plans = _build_vehicle_plans(vehicles)
     result = solve(
         candidates,
         plans,

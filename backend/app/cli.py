@@ -36,8 +36,8 @@ def _bootstrap() -> None:
 def init_db() -> None:
     """Create any missing tables directly from the models.
 
-    Convenient for a local SQLite file. Against PostgreSQL prefer
-    `alembic upgrade head`, which keeps a versioned migration history.
+    Convenient for a local SQLite file. Production PostgreSQL must use
+    `alembic upgrade head` (run from `backend/`) rather than this command.
     """
     from app.models import Base
 

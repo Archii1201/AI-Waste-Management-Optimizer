@@ -1,10 +1,13 @@
-# AI-Powered Waste Management & Recycling Optimizer
+# EcoFlow AI
 
-Monitors waste bins in real time, forecasts when each bin will overflow, classifies
-waste from images, prioritises collections, and plans capacity-constrained vehicle
-routes — with an operations dashboard over OpenStreetMap.
+Intelligent Waste Operations.
 
-Built for problem statement **PS-11**. Seeded network is modelled on **Mumbai**.
+Monitors waste bins, forecasts overflow, classifies waste from images, prioritises
+collections, and plans capacity-constrained vehicle routes — with an operations
+dashboard over OpenStreetMap. Seeded network is modelled on **Mumbai**.
+
+The application is **not** deployed from this repository by default. The notes
+below prepare a production release; they do not mean a public instance exists.
 
 ---
 
@@ -19,204 +22,271 @@ REST /telemetry ─┘                            │
                                               ├──> Prioritisation engine   (weighted scoring)
                                               ├──> Route optimizer         (OR-Tools CVRP)
                                               ├──> Alert engine            (rules + anomaly detection)
-                                              └──> Analytics engine        (patterns, recommendations)
+                                              └──> Analytics / What-If / Live Simulation
                                                         │
-                        Next.js dashboard <──REST/WS────┘  (MapLibre + OSM, Recharts)
+                 React + Vite dashboard <──REST─────────┘  (Leaflet + OSM, Recharts)
 ```
 
 ## Technology
 
-| Layer | Choice | Why |
-|---|---|---|
-| Backend | FastAPI + SQLAlchemy 2.0 + Alembic | Async-capable, auto-generated OpenAPI docs, typed ORM |
-| Database | PostgreSQL (cloud) | Window functions and time-bucketed aggregation for analytics |
-| Fill prediction | scikit-learn `HistGradientBoostingRegressor` | Strong on mixed tabular features, trains in seconds on CPU |
-| Waste classification | PyTorch + MobileNetV3 transfer learning | Small dataset rules out training from scratch; runs on CPU |
-| Routing | Google OR-Tools | Industry-standard CVRP solver with capacity and time windows |
-| Frontend | Next.js 14 + TypeScript + Tailwind | Server components, strong typing, fast iteration |
-| Maps | MapLibre GL + OpenStreetMap | Free, no API key, vector rendering for hundreds of markers |
-| IoT | amqtt broker + paho-mqtt client | Pure Python, so no system-level broker install |
+| Layer | Choice |
+|---|---|
+| Backend | FastAPI + SQLAlchemy 2.0 + Alembic |
+| Database | PostgreSQL |
+| Fill prediction | scikit-learn `HistGradientBoostingRegressor` |
+| Waste classification | PyTorch + MobileNetV3 (CPU) |
+| Routing | Google OR-Tools CVRP |
+| Frontend | React + Vite + JavaScript + Tailwind |
+| Maps | Leaflet + OpenStreetMap |
+| IoT | amqtt broker + paho-mqtt (optional; dashboard Live Simulation uses HTTP) |
 
 ## Repository layout
 
 ```
-backend/
-  app/
-    api/v1/endpoints/   HTTP route handlers, one module per resource
-    core/               config, database session, logging, error handling
-    models/             SQLAlchemy ORM models (the schema)
-    schemas/            Pydantic request/response contracts
-    services/           business logic, framework-independent
-  alembic/              database migrations
-ml/                     training pipelines and model artifacts
-frontend/               Next.js dashboard
-requirements.txt        every Python dependency, in one file
+backend/                 FastAPI app, Alembic, CLI
+frontend/                 React + Vite dashboard
+ml/artifacts/             model weights (not committed) and metrics.json
+requirements.txt          every Python dependency, in one file
+Dockerfile                production CPU image for the API
+Procfile                  Railway/Render-style web process
 ```
 
-## Database schema
+---
 
-| Table | Purpose |
-|---|---|
-| `zones` | Wards/neighbourhoods; the baseline unit for anomaly detection |
-| `bins` | Location, capacity, waste type, and latest telemetry snapshot |
-| `bin_readings` | Append-only sensor time-series; trains the forecaster |
-| `collection_events` | Every emptying, with recyclable/non-recyclable split |
-| `vehicles` | Capacity (volume and weight), depot, shift window, live position |
-| `routes` / `route_stops` | Optimizer output with ordered stops and ETAs |
-| `fill_predictions` | Cached forecasts, later scored against what actually happened |
-| `waste_classifications` | Image classifier results and human corrections |
-| `alerts` | Overflow warnings and generation anomalies, with deduplication |
-| `users` | Role-based access: admin, dispatcher, driver, viewer |
+## A. Local development
 
-## Setup
-
-**Prerequisites:** Python 3.11, Node 20+, and a PostgreSQL connection string
-(a free [Neon](https://neon.tech) database works).
+**Prerequisites:** Python 3.11, Node 20+, PostgreSQL.
 
 ```powershell
-# 1. Install Python dependencies
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-# 2. Configure
 Copy-Item .env.example .env
-# then set DATABASE_URL and SECRET_KEY in .env
-#   python -c "import secrets; print(secrets.token_urlsafe(48))"
+# set DATABASE_URL and SECRET_KEY in .env
 
-# 3. Create the schema and seed the Mumbai network
 cd backend
-python -m app.cli init-db     # or `alembic upgrade head` against PostgreSQL
-python -m app.cli seed        # 9 zones, 130 bins, 7 vehicles. Safe to re-run.
-
-# 3b. Backfill the history the fill-level model trains on (~560k readings)
+alembic upgrade head
+python -m app.cli seed
 python -m app.cli generate-history --days 90
-
-# 3c. Train the fill-level model and produce the first forecasts
 python -m app.cli train-fill-model
 python -m app.cli predict
 
-# 3d. Optional: train the waste image classifier (needs a labelled image set,
-#     see "Waste image classification" below)
-python -m app.cli train-classifier
+# API (local default port 8000)
+uvicorn app.main:app --reload --app-dir backend --host 127.0.0.1 --port 8000
 
-# 4. Run the API
-uvicorn app.main:app --reload
+# Dashboard (second terminal)
+cd frontend
+npm install
+npm run dev
 ```
 
-Interactive API docs: <http://localhost:8000/docs>
+Vite (`http://localhost:5173`) proxies `/api` to `http://127.0.0.1:8000`. Leave
+`VITE_API_BASE_URL` empty locally.
 
-### Running the live IoT simulation
+Interactive API docs (development only): <http://localhost:8000/docs>
 
-Three processes, one per terminal, all from `backend/`:
+`python -m app.cli init-db` still exists for local SQLite/create_all. Prefer
+Alembic even locally so the schema matches production.
+
+MQTT broker/bridge/CLI simulator remain available; the dashboard Live Simulation
+does not need them.
+
+---
+
+## B. Required environment variables
+
+| Variable | Purpose |
+|---|---|
+| `ENVIRONMENT` | `production` disables debug, docs, and localhost CORS fallbacks |
+| `DEBUG` | Forced false in production |
+| `LOG_LEVEL` | `INFO` in production |
+| `SECRET_KEY` | Required; never commit a real value |
+| `DATABASE_URL` | PostgreSQL URL (`postgres://` is rewritten to `postgresql+psycopg://`) |
+| `CORS_ORIGINS` | Deployed frontend origin(s). Empty = same-origin. No `*` |
+| `APP_NAME` | `EcoFlow AI` |
+| `HOST` / `PORT` | Local default `127.0.0.1:8000`. Production binds `0.0.0.0` and `$PORT` |
+| `OSRM_ENABLED` | Road distances; falls back to haversine if false/unreachable |
+| `ML_ARTIFACT_DIR` | Directory for `.joblib` / `.pt` files |
+| `ROUTE_SOLVER_TIME_LIMIT_SECONDS` | OR-Tools time limit |
+| `VITE_API_BASE_URL` | Frontend only. API origin when UI is hosted separately |
+
+See `.env.example` and `frontend/.env.example`. Do not commit `.env` files.
+
+---
+
+## C. Database setup
+
+Use PostgreSQL in production (Neon, Railway, Render, or similar).
+
+After the URL is set:
 
 ```powershell
-python -m app.cli broker      # 1. embedded MQTT broker on :1883
-python -m app.cli bridge      # 2. MQTT -> database ingestion
-python -m app.cli simulate --auto-collect --speed 600   # 3. the bin sensor fleet
+cd backend
+alembic upgrade head
+python -m app.cli seed
 ```
 
-Simulated time starts 24 hours in the past and races forward until it catches
-the wall clock, then continues in real time. `--auto-collect` models the legacy
-fixed-schedule crew so bins are actually emptied before the route optimizer
-exists; that also gives the baseline this project is measured against.
+Optional demo richness (large): `python -m app.cli generate-history --days 90`.
 
-Useful flags: `--ticks N` to stop after N intervals, `--zone-id` to simulate one
-ward, `--dropout-rate 0.02` to make sensors occasionally fail to transmit, and
-`--seed 7` for a byte-for-byte reproducible run.
+---
 
-Check what landed with `python -m app.cli status`.
+## D. Alembic migration
 
-### CLI reference
+Production **must** apply the versioned schema:
+
+```powershell
+cd backend
+alembic upgrade head
+```
+
+Do not rely on `init-db` / `create_all` for a deployed database.
+
+If an existing database was created with `init-db` and already matches this
+schema, stamp instead of re-running create:
+
+```powershell
+cd backend
+alembic stamp head
+```
+
+---
+
+## E. Model artifact requirements
+
+Trained weights are **gitignored**. Classification and gradient-boosting forecasts
+need these files under `ML_ARTIFACT_DIR` (default `ml/artifacts/`):
+
+- `fill_rate_gbr.joblib`
+- `waste_mobilenetv3.pt`
+
+Upload or copy them onto the API host. Fill prediction degrades to rolling /
+zone fallbacks without the joblib file. Image classification is unavailable
+without the `.pt` file. Do not commit `*.joblib`, `*.pt`, or `*.pth`.
+
+---
+
+## F. Frontend production build
+
+```powershell
+cd frontend
+# Split hosting: set the API origin before build
+#   $env:VITE_API_BASE_URL="https://your-api-domain.example.com"
+npm ci
+npm run build
+```
+
+Output is `frontend/dist/`. Empty `VITE_API_BASE_URL` keeps same-origin `/api/v1`
+(combined deploy or a reverse proxy).
+
+---
+
+## G. Backend production start command
+
+Use the platform `PORT`. **One worker** is required.
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --app-dir backend
+```
+
+PowerShell local equivalent:
+
+```powershell
+uvicorn app.main:app --host 0.0.0.0 --port $env:PORT --workers 1 --app-dir backend
+```
+
+---
+
+## H. Docker usage
+
+The `Dockerfile` is a CPU image for the API (Python 3.11, `requirements.txt`,
+no CUDA). It does not bake a frontend build.
+
+```powershell
+docker build -t ecoflow-ai .
+docker run -p 8000:8000 `
+  -e PORT=8000 `
+  -e ENVIRONMENT=production `
+  -e DATABASE_URL="postgresql+psycopg://..." `
+  -e SECRET_KEY="..." `
+  -e CORS_ORIGINS="https://your-frontend-domain.example.com" `
+  ecoflow-ai
+```
+
+Run migrations against the same `DATABASE_URL` before serving traffic
+(`alembic upgrade head` from `backend/`). Copy model artifacts into
+`ml/artifacts` on the host or into the image at runtime.
+
+---
+
+## I. Deployment architecture
+
+Recommended public demo:
+
+1. **PostgreSQL** — Neon, Railway, or Render Postgres
+2. **Always-on FastAPI** — Railway or Render Web Service (not serverless). Use
+   the `Procfile` / Docker start command with `--workers 1`
+3. **Frontend** — Vercel/Netlify static `dist/` with `VITE_API_BASE_URL`, **or**
+   copy `frontend/dist` next to the API so FastAPI serves the SPA at `/` and
+   the API at `/api/v1` (same origin; leave `CORS_ORIGINS` empty)
+
+Do not host the API on Vercel/Netlify functions. Live Simulation, OR-Tools, and
+PyTorch need a persistent process and enough RAM (about 2 GB if the classifier
+stays enabled).
+
+---
+
+## J. Important Live Simulation limitation
+
+Live Simulation is **in-process memory**. Therefore:
+
+- use **one** uvicorn worker (`--workers 1`)
+- restarting the service **resets** simulation state
+- multiple workers must **not** be used (each worker would have its own state)
+
+No Redis or shared store is used.
+
+---
+
+## K. Health check endpoint
+
+| Method | Path | Meaning |
+|---|---|---|
+| GET | `/api/v1/health` | Process is up (no database, no ML) |
+| GET | `/api/v1/health/ready` | Database `SELECT 1` (503 if unreachable) |
+
+Point the platform health check at `/api/v1/health`.
+
+Swagger and ReDoc are enabled in development and disabled when
+`ENVIRONMENT=production`.
+
+---
+
+## CLI reference
 
 | Command | Purpose |
 |---|---|
-| `init-db` | Create tables directly from the models |
-| `seed` | Create the Mumbai zones, bins and vehicles |
-| `generate-history` | Backfill months of readings and collection events |
-| `status` | Row counts and average fill level |
-| `broker` | Run the embedded MQTT broker |
-| `bridge` | Ingest MQTT telemetry into the database |
-| `simulate` | Run the bin sensor fleet |
-| `train-fill-model` | Train the fill-rate model on stored history |
-| `predict` | Refresh stored overflow forecasts for every bin |
-| `score-predictions` | Grade past forecasts against observed overflows |
-| `dataset-info` | Count usable training images per waste category |
-| `train-classifier` | Fine-tune MobileNetV3 on the waste image dataset |
-| `classify-image` | Classify one photo from the command line |
-| `export-reviewed` | Fold human-corrected images back into the training set |
-| `priorities` | Rank bins by collection priority |
-| `optimize-routes` | Plan optimised vehicle routes for today |
-| `route-summary` | Distance, cost and the saving over unoptimised order |
-| `detect-alerts` | Run overflow, anomaly and sensor-health rules |
-| `analytics` | Print collection, route, fill and waste statistics |
-| `recommendations` | Print operational recommendations |
+| `init-db` | Create tables from models (local only; production uses Alembic) |
+| `seed` | Mumbai zones, bins and vehicles |
+| `generate-history` | Backfill readings and collection events |
+| `train-fill-model` / `predict` | Fill-rate model and forecasts |
+| `train-classifier` | Optional image classifier |
+| `priorities` / `optimize-routes` | Priority ranking and CVRP plan |
+| `detect-alerts` / `analytics` / `recommendations` | Ops jobs |
 
-### Prioritisation and routing
-
-```powershell
-python -m app.cli priorities --top 20
-python -m app.cli optimize-routes            # add --no-osrm to skip road distances
-python -m app.cli route-summary
-```
-
-The priority score is an explicit weighted sum of the four inputs the problem
-statement names — current fill, predicted overflow time, location and waste type
-— plus a chronic-offender term, and every component is returned alongside the
-total so a dispatcher can justify the ordering.
-
-Routing is a capacitated VRP solved with OR-Tools, respecting each vehicle's
-volume and weight limits, shift length and accepted waste streams. Bins the
-fleet cannot absorb are returned in `deferred_bins` with a reason rather than
-disappearing. Road distances come from OSRM; if it is unreachable the plan falls
-back to straight-line distances inflated by an urban detour factor, so planning
-never hard-fails.
-
-
-### Waste image classification
-
-The classifier needs labelled photos, which are not in the repository. Point it
-at any folder with one subdirectory per category:
-
-```
-ml/datasets/waste/
-  plastic/   paper/   metal/   glass/   organic/   other/
-```
-
-Common public datasets work unmodified — [TrashNet](https://github.com/garythung/trashnet)
-and the Kaggle *Garbage Classification* sets are both folder-per-class. Their
-folder names are mapped onto our six categories automatically, so `cardboard`
-lands in `paper` and `trash` in `other`.
-
-```powershell
-python -m app.cli dataset-info        # check what was found before training
-python -m app.cli train-classifier    # ~10 minutes on CPU for ~2.5k images
-python -m app.cli classify-image path\to\photo.jpg --bin-id 42
-```
-
-Training prints per-category precision and recall, not just overall accuracy,
-because a model that is excellent at paper and useless at metal would look fine
-on accuracy alone. Passing `--bin-id` also checks the item against what that bin
-is meant to hold, which is how stream contamination is detected.
-
-Predictions below the confidence threshold are flagged for human review rather
-than trusted. Corrections made through `POST /api/v1/classify/{id}/review` can
-be exported back into the dataset with `export-reviewed`, so the model improves
-on the cases it actually got wrong.
-
-**Optional GPU:** to train the image classifier on an NVIDIA card, after step 1 run
-`pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu121`.
+---
 
 ## Deliverable coverage
 
 | Requirement | Where it lives |
 |---|---|
-| Bin monitoring (location, capacity, fill, type) | `models/bin.py`, `/api/v1/bins` |
+| Bin monitoring | `models/bin.py`, `/api/v1/bins` |
 | Fill-level prediction | `ml/fill_prediction/`, `/api/v1/predictions` |
-| Waste classification (6 categories) | `ml/classification/`, `/api/v1/classify` |
+| Waste classification | `ml/classification/`, `/api/v1/classify` |
 | Collection prioritisation | `services/prioritization.py`, `/api/v1/priorities` |
 | Route optimization | `services/routing/`, `/api/v1/routes/optimize` |
 | Dashboard | `frontend/` |
-| Alerts | `services/alerts.py`, `/api/v1/alerts` |
-| Analytics & recommendations | `services/analytics.py`, `/api/v1/analytics` |
-| Recyclable/non-recyclable estimation | `collection_events`, `/api/v1/analytics/waste-estimation` |
+| Live Simulation | `/api/v1/simulation` |
+| What-If | `/api/v1/scenarios/what-if` |
+| Alerts | `/api/v1/alerts` |
+| Analytics & recommendations | `/api/v1/analytics` |

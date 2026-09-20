@@ -16,6 +16,8 @@ from app.api.v1.endpoints import (
     priorities,
     reference,
     routes,
+    scenarios,
+    simulation,
     telemetry,
     vehicles,
     zones,
@@ -34,3 +36,5 @@ api_router.include_router(priorities.router)
 api_router.include_router(routes.router)
 api_router.include_router(alerts.router)
 api_router.include_router(analytics.router)
+api_router.include_router(simulation.router)
+api_router.include_router(scenarios.router)

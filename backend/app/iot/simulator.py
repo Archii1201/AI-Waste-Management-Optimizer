@@ -230,13 +230,14 @@ class FleetSimulator:
         device.note_collection()
         return True
 
-    def tick(self, moment: datetime) -> tuple[int, int]:
-        """Advance every device one interval and publish.
+    def tick_payloads(self, moment: datetime) -> tuple[list[TelemetryIn], int]:
+        """Advance every device one interval and return telemetry payloads.
 
-        Returns (messages published, bins emptied by the legacy crew).
+        Shared by the MQTT publisher and the dashboard live-simulation endpoint
+        so fill physics stay in one place.
         """
         hours = self.interval.total_seconds() / 3600.0
-        published = 0
+        payloads: list[TelemetryIn] = []
         collected = 0
 
         for device in self.devices.values():
@@ -249,13 +250,23 @@ class FleetSimulator:
             if self.dropout_rate and self.rng.random() < self.dropout_rate:
                 continue
 
-            message = payload_codec.encode(device.build_payload(moment))
-            self._client.publish(
-                payload_codec.telemetry_topic(device.bin_code), message, qos=1
-            )
-            published += 1
+            payloads.append(device.build_payload(moment))
 
-        return published, collected
+        return payloads, collected
+
+    def tick(self, moment: datetime) -> tuple[int, int]:
+        """Advance every device one interval and publish.
+
+        Returns (messages published, bins emptied by the legacy crew).
+        """
+        payloads, collected = self.tick_payloads(moment)
+        for payload in payloads:
+            self._client.publish(
+                payload_codec.telemetry_topic(payload.bin_code),
+                payload_codec.encode(payload),
+                qos=1,
+            )
+        return len(payloads), collected
 
     # ------------------------------------------------------------------
     def run(self, *, ticks: int | None = None) -> None:

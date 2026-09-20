@@ -20,11 +20,11 @@ coverage.xml
 
 # ---------- Environment ----------
 .env
-.env.local
-.env.*.local
+.env.*
 !.env.example
+!**/.env.example
 
-# ---------- Node / Next.js ----------
+# ---------- Node / Vite ----------
 node_modules/
 .next/
 out/
@@ -36,13 +36,15 @@ yarn-error.log*
 
 # ---------- ML artifacts ----------
 # Trained weights and datasets are large; regenerate with the training scripts.
+ml/artifacts/*.joblib
+ml/artifacts/*.pt
+ml/artifacts/*.pth
 ml/artifacts/**/*.joblib
 ml/artifacts/**/*.pt
 ml/artifacts/**/*.pth
 ml/artifacts/**/*.onnx
 ml/data/raw/
 ml/data/processed/
-# Training images and uploaded photos: bulky, and uploads may be site imagery.
 ml/datasets/
 ml/uploads/
 !ml/artifacts/**/metrics.json
