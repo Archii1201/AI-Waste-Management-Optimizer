@@ -145,6 +145,30 @@ Check what landed with `python -m app.cli status`.
 | `train-classifier` | Fine-tune MobileNetV3 on the waste image dataset |
 | `classify-image` | Classify one photo from the command line |
 | `export-reviewed` | Fold human-corrected images back into the training set |
+| `priorities` | Rank bins by collection priority |
+| `optimize-routes` | Plan optimised vehicle routes for today |
+| `route-summary` | Distance, cost and the saving over unoptimised order |
+
+### Prioritisation and routing
+
+```powershell
+python -m app.cli priorities --top 20
+python -m app.cli optimize-routes            # add --no-osrm to skip road distances
+python -m app.cli route-summary
+```
+
+The priority score is an explicit weighted sum of the four inputs the problem
+statement names — current fill, predicted overflow time, location and waste type
+— plus a chronic-offender term, and every component is returned alongside the
+total so a dispatcher can justify the ordering.
+
+Routing is a capacitated VRP solved with OR-Tools, respecting each vehicle's
+volume and weight limits, shift length and accepted waste streams. Bins the
+fleet cannot absorb are returned in `deferred_bins` with a reason rather than
+disappearing. Road distances come from OSRM; if it is unreachable the plan falls
+back to straight-line distances inflated by an urban detour factor, so planning
+never hard-fails.
+
 
 ### Waste image classification
 
