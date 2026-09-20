@@ -555,5 +555,70 @@ def route_summary() -> None:
     console.print(table)
 
 
+# ---------------------------------------------------------------------------
+# Alerts and analytics
+# ---------------------------------------------------------------------------
+@app.command("detect-alerts")
+def detect_alerts(
+    zone_id: int | None = typer.Option(None, help="Restrict detection to one zone"),
+) -> None:
+    """Run the alert rules across the network."""
+    from app.services import alert_service
+
+    with SessionLocal() as session:
+        report = alert_service.detect(session, zone_id=zone_id)
+        open_alerts = alert_service.list_alerts(session, open_only=True, limit=15)
+
+        table = Table(title=f"Open alerts ({report})")
+        table.add_column("Severity")
+        table.add_column("Type")
+        table.add_column("Title")
+        for alert in open_alerts:
+            table.add_row(alert.severity.value, alert.alert_type.value, alert.title)
+
+    console.print(table)
+
+
+@app.command("analytics")
+def analytics(
+    days: int = typer.Option(30, help="Days of history to analyse"),
+) -> None:
+    """Print the operational analytics summary."""
+    from app.services import analytics_service
+
+    with SessionLocal() as session:
+        data = analytics_service.overview(session, days=days)
+
+    for block in ("collections", "routes", "fill", "waste"):
+        table = Table(title=block.title())
+        table.add_column("Metric")
+        table.add_column("Value", justify="right")
+        for key, value in data[block].items():
+            if isinstance(value, dict):
+                continue
+            table.add_row(key.replace("_", " "), str(value))
+        console.print(table)
+
+
+@app.command("recommendations")
+def recommendations(
+    days: int = typer.Option(30, help="Days of history to analyse"),
+) -> None:
+    """Print operational recommendations derived from the data."""
+    from app.services import analytics_service
+
+    with SessionLocal() as session:
+        items = analytics_service.recommendations(session, days=days)
+
+    if not items:
+        console.print("[green]No issues found[/] - operations look healthy")
+        return
+
+    for item in items:
+        console.print(f"\n[bold]{item['priority'].upper()}[/] - {item['title']}")
+        console.print(f"  {item['detail']}")
+        console.print(f"  [cyan]Action:[/] {item['action']}")
+
+
 if __name__ == "__main__":
     app()

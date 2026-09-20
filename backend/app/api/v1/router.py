@@ -7,6 +7,8 @@ untouched as the system grows.
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    alerts,
+    analytics,
     bins,
     classify,
     health,
@@ -30,3 +32,5 @@ api_router.include_router(predictions.router)
 api_router.include_router(classify.router)
 api_router.include_router(priorities.router)
 api_router.include_router(routes.router)
+api_router.include_router(alerts.router)
+api_router.include_router(analytics.router)
